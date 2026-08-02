@@ -254,20 +254,22 @@ def extract_video_id(url):
 def build_transcript_api():
     """프록시 설정이 있으면 적용해 YouTubeTranscriptApi를 만듭니다.
     Streamlit Cloud 등 데이터센터 IP는 유튜브가 차단하므로 프록시가 필요할 수 있습니다."""
-    try:
-        secrets = st.secrets
-    except Exception:
-        secrets = {}
+    def secret(name):
+        # st.secrets는 값을 읽는 시점에 파일을 찾으므로, 읽기 자체를 감싸야 한다.
+        try:
+            return st.secrets.get(name)
+        except Exception:
+            return None
 
-    ws_user = secrets.get("WEBSHARE_PROXY_USERNAME") if secrets else None
-    ws_pass = secrets.get("WEBSHARE_PROXY_PASSWORD") if secrets else None
+    ws_user = secret("WEBSHARE_PROXY_USERNAME")
+    ws_pass = secret("WEBSHARE_PROXY_PASSWORD")
     if ws_user and ws_pass:
         from youtube_transcript_api.proxies import WebshareProxyConfig
         return YouTubeTranscriptApi(
             proxy_config=WebshareProxyConfig(proxy_username=ws_user, proxy_password=ws_pass)
         )
 
-    http_url = secrets.get("HTTP_PROXY_URL") if secrets else None
+    http_url = secret("HTTP_PROXY_URL")
     if http_url:
         from youtube_transcript_api.proxies import GenericProxyConfig
         return YouTubeTranscriptApi(
