@@ -3,13 +3,19 @@ import re
 import json
 from youtube_transcript_api import YouTubeTranscriptApi
 import google.generativeai as genai
+from streamlit_local_storage import LocalStorage
 
 # Streamlit 페이지 설정
 st.set_page_config(page_title="유튜브 강의 2종 웹페이지 자동 생성기", layout="wide")
 st.title("🎥 유튜브 자막 기반 슬라이드 & 웹 학습지 자동 생성기")
 
-# API 키 및 설정
-api_key = st.sidebar.text_input("Gemini API Key 입력", type="password")
+# API 키 저장/불러오기 (브라우저 localStorage에만 저장, 서버에는 저장되지 않음)
+local_storage = LocalStorage()
+saved_api_key = local_storage.getItem("gemini_api_key") or ""
+api_key = st.sidebar.text_input("Gemini API Key 입력", type="password", value=saved_api_key)
+if api_key and api_key != saved_api_key:
+    local_storage.setItem("gemini_api_key", api_key, key="save_gemini_api_key")
+st.sidebar.caption("🔒 입력한 키는 이 브라우저에만 저장되며, 서버로 전송되지 않습니다.")
 
 def extract_video_id(url):
     regex = r"(?:v=|youtu\.be\/|\/embed\/|\/v\/)([^\"&?\/\s]{11})"
@@ -23,6 +29,60 @@ def get_youtube_transcript(video_id):
         return " ".join([snippet.text for snippet in fetched_transcript])
     except Exception as e:
         return None
+
+def clean_transcript_with_ai(model, raw_text):
+    prompt = f"""당신은 부동산 공법 강의 전문 편집자입니다.
+아래는 유튜브 강의를 그대로 받아쓰기한 원본 스크립트이며, 음성 인식 오타·띄어쓰기 오류·불필요한 추임새가 섞여 있을 수 있습니다.
+
+[처리 지침]
+1. 오탈자와 띄어쓰기를 바로잡으세요.
+2. 강사가 실제로 말한 내용·순서·의미는 절대 바꾸거나 삭제하지 말고, 문맥에 맞게 문장만 자연스럽게 다듬으세요.
+3. 법령명·조문번호·용어가 구어체로 축약되었거나 부정확하면(예: "국토계획법" → "국토의 계획 및 이용에 관한 법률") 공식 법령 명칭과 정확한 용어로 정리하세요. 확실하지 않으면 원문 그대로 두세요.
+4. 요약하지 말고, 정리된 전체 전사문(transcript)만 출력하세요. 설명이나 머리말 없이 본문만 출력하세요.
+
+[원본 스크립트]
+{raw_text[:15000]}
+"""
+    response = model.generate_content(prompt)
+    return response.text.strip()
+
+def generate_structured_data(model, transcript):
+    prompt = f"""
+    당신은 전문 법률/강의 콘텐츠 에디터입니다.
+    아래 유튜브 강의 전사 내용을 분석하여 웹페이지 생성용 구조화 JSON 데이터를 작성하세요.
+
+    [전사 내용]:
+    {transcript[:12000]}
+
+    [요청 사항]:
+    - 강의를 5~7개의 파트(Part 1, Part 2 등)로 나누세요.
+    - 각 파트별 핵심 제목, 설명, 대표 강사 발언(key_quotes), 주요 학습 포인트(bullet_points), 공략 팁(tips)을 추출하세요.
+    - 전체 강의 점검용 체크리스트 항목 5~8개를 작성하세요.
+
+    반드시 아래 JSON 형태로만 응답하세요:
+    ```json
+    {{
+        "title": "강의 제목",
+        "speaker": "강사명",
+        "summary": "강의 한 줄 요약",
+        "parts": [
+            {{
+                "part_num": "PART 1",
+                "title": "파트 제목",
+                "subtitle": "파트 설명",
+                "key_quotes": ["대표 발언 문구"],
+                "bullet_points": ["주요 포인트 1", "주요 포인트 2"],
+                "tips": ["공략 팁"]
+            }}
+        ],
+        "checklist": ["체크리스트 1", "체크리스트 2"]
+    }}
+    ```
+    """
+    response = model.generate_content(prompt)
+    json_match = re.search(r"```json\s*(.*?)\s*```", response.text, re.DOTALL)
+    json_str = json_match.group(1) if json_match else response.text
+    return json.loads(json_str)
 
 # ================= ==========================================
 # 1. SLIDES HTML 템플릿 생성 함수 (juntaekslides.html 스타일)
@@ -326,6 +386,16 @@ def generate_study_html(data):
 # ================= ==========================================
 # 3. Streamlit 사용자 인터페이스
 # ============================================================
+for key, default in [
+    ("manual_mode", False),
+    ("ready_to_generate", False),
+    ("transcript", None),
+    ("slides_html", None),
+    ("study_html", None),
+]:
+    if key not in st.session_state:
+        st.session_state[key] = default
+
 youtube_url = st.text_input("유튜브 영상 주소를 입력하세요:", placeholder="https://www.youtube.com/watch?v=...")
 
 if st.button("🚀 2종 웹페이지 생성하기"):
@@ -336,70 +406,74 @@ if st.button("🚀 2종 웹페이지 생성하기"):
         if not video_id:
             st.error("올바른 유튜브 URL이 아닙니다.")
         else:
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-1.5-pro')
-
             with st.spinner("1/3 유튜브 자막을 추출하는 중입니다..."):
                 transcript = get_youtube_transcript(video_id)
 
-            if not transcript:
-                st.error("자막을 가져올 수 없습니다. 한국어 자막이 있는 영상인지 확인해주세요.")
-            else:
+            if transcript:
                 st.success("자막 추출 완료!")
-                with st.spinner("2/3 AI가 강의를 분석하고 구조화 데이터를 생성 중입니다..."):
-                    prompt = f"""
-                    당신은 전문 법률/강의 콘텐츠 에디터입니다.
-                    아래 유튜브 강의 전사 내용을 분석하여 웹페이지 생성용 구조화 JSON 데이터를 작성하세요.
+                st.session_state.transcript = transcript
+                st.session_state.manual_mode = False
+                st.session_state.ready_to_generate = True
+                st.session_state.slides_html = None
+                st.session_state.study_html = None
+            else:
+                st.session_state.manual_mode = True
+                st.session_state.ready_to_generate = False
 
-                    [전사 내용]:
-                    {transcript[:12000]}
+# 자막을 자동으로 못 가져온 경우: 수동 붙여넣기 + AI 정리
+if st.session_state.manual_mode:
+    st.warning("자막을 자동으로 가져올 수 없습니다. 아래에 강의 전체 스크립트를 붙여넣어 주세요. 오타 수정과 법령 용어 정리는 AI가 자동으로 처리합니다.")
+    manual_text = st.text_area("강의 전체 스크립트 붙여넣기", height=300, key="manual_transcript_input")
 
-                    [요청 사항]:
-                    - 강의를 5~7개의 파트(Part 1, Part 2 등)로 나누세요.
-                    - 각 파트별 핵심 제목, 설명, 대표 강사 발언(key_quotes), 주요 학습 포인트(bullet_points), 공략 팁(tips)을 추출하세요.
-                    - 전체 강의 점검용 체크리스트 항목 5~8개를 작성하세요.
+    if st.button("📝 붙여넣은 스크립트로 진행하기"):
+        if not api_key:
+            st.error("사이드바에 Gemini API Key를 먼저 입력해주세요.")
+        elif not manual_text.strip():
+            st.error("스크립트를 붙여넣어 주세요.")
+        else:
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel('gemini-1.5-pro')
+            with st.spinner("AI가 오타를 고치고 법령 용어에 맞게 정리하는 중입니다..."):
+                try:
+                    cleaned = clean_transcript_with_ai(model, manual_text)
+                    st.session_state.transcript = cleaned
+                    st.session_state.ready_to_generate = True
+                    st.session_state.slides_html = None
+                    st.session_state.study_html = None
+                except Exception as e:
+                    st.error(f"스크립트 정리 중 오류가 발생했습니다: {e}")
 
-                    반드시 아래 JSON 형태로만 응답하세요:
-                    ```json
-                    {{
-                        "title": "강의 제목",
-                        "speaker": "강사명",
-                        "summary": "강의 한 줄 요약",
-                        "parts": [
-                            {{
-                                "part_num": "PART 1",
-                                "title": "파트 제목",
-                                "subtitle": "파트 설명",
-                                "key_quotes": ["대표 발언 문구"],
-                                "bullet_points": ["주요 포인트 1", "주요 포인트 2"],
-                                "tips": ["공략 팁"]
-                            }}
-                        ],
-                        "checklist": ["체크리스트 1", "체크리스트 2"]
-                    }}
-                    ```
-                    """
-                    try:
-                        response = model.generate_content(prompt)
-                        json_match = re.search(r"```json\s*(.*?)\s*```", response.text, re.DOTALL)
-                        json_str = json_match.group(1) if json_match else response.text
-                        data = json.loads(json_str)
+    if st.session_state.transcript and st.session_state.ready_to_generate:
+        with st.expander("✅ 정리된 스크립트 확인"):
+            st.write(st.session_state.transcript)
 
-                        with st.spinner("3/3 2종 HTML 웹페이지를 완성하는 중입니다..."):
-                            slides_html = generate_slides_html(data)
-                            study_html = generate_study_html(data)
+# 구조화 데이터 + HTML 생성
+if st.session_state.ready_to_generate and st.session_state.transcript:
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel('gemini-1.5-pro')
+    with st.spinner("2/3 AI가 강의를 분석하고 구조화 데이터를 생성 중입니다..."):
+        try:
+            data = generate_structured_data(model, st.session_state.transcript)
+        except Exception as e:
+            st.error(f"처리 중 오류가 발생했습니다: {e}")
+            data = None
 
-                        st.success("🎉 생성 완료!")
+    if data:
+        with st.spinner("3/3 2종 HTML 웹페이지를 완성하는 중입니다..."):
+            st.session_state.slides_html = generate_slides_html(data)
+            st.session_state.study_html = generate_study_html(data)
+        st.session_state.ready_to_generate = False
 
-                        tab1, tab2 = st.tabs(["📊 1. 프레젠테이션 슬라이드 (HTML)", "📄 2. 웹 요약 학습지 (HTML)"])
+# 결과 표시 (재실행되어도 유지됨)
+if st.session_state.slides_html and st.session_state.study_html:
+    st.success("🎉 생성 완료!")
 
-                        with tab1:
-                            st.download_button("📥 슬라이드 HTML 다운로드", data=slides_html, file_name="slides_presentation.html", mime="text/html")
-                            st.components.v1.html(slides_html, height=650, scrolling=True)
+    tab1, tab2 = st.tabs(["📊 1. 프레젠테이션 슬라이드 (HTML)", "📄 2. 웹 요약 학습지 (HTML)"])
 
-                        with tab2:
-                            st.download_button("📥 웹 학습지 HTML 다운로드", data=study_html, file_name="study_guide.html", mime="text/html")
-                            st.components.v1.html(study_html, height=650, scrolling=True)
+    with tab1:
+        st.download_button("📥 슬라이드 HTML 다운로드", data=st.session_state.slides_html, file_name="slides_presentation.html", mime="text/html")
+        st.components.v1.html(st.session_state.slides_html, height=650, scrolling=True)
 
-                    except Exception as e:
-                        st.error(f"처리 중 오류가 발생했습니다: {e}")
+    with tab2:
+        st.download_button("📥 웹 학습지 HTML 다운로드", data=st.session_state.study_html, file_name="study_guide.html", mime="text/html")
+        st.components.v1.html(st.session_state.study_html, height=650, scrolling=True)
