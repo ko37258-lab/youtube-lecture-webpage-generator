@@ -3,3 +3,4 @@ youtube-transcript-api
 google-generativeai
 streamlit-local-storage
 xhtml2pdf
+markdown

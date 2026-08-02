@@ -131,6 +131,88 @@ def mindmap_pdf_bytes(md, speaker):
             body += "</ul>"
     return build_pdf_bytes(body, title)
 
+def markdown_to_rich_html(md_text):
+    """마크다운을 블로그 편집기에 붙여넣을 수 있는 서식 HTML로 변환합니다.
+    외부 CSS가 따라가지 않으므로 표·인용 등에 인라인 스타일을 직접 넣습니다."""
+    import markdown as md_lib
+
+    html = md_lib.markdown(md_text, extensions=["tables", "nl2br"])
+    replacements = [
+        ("<table>", '<table style="border-collapse:collapse;width:100%;margin:16px 0;">'),
+        ("<th>", '<th style="border:1px solid #ccc;background:#f5f5f5;padding:8px;text-align:left;">'),
+        ("<td>", '<td style="border:1px solid #ccc;padding:8px;">'),
+        ("<h2>", '<h2 style="font-size:22px;font-weight:bold;margin:28px 0 12px;">'),
+        ("<h3>", '<h3 style="font-size:18px;font-weight:bold;margin:22px 0 10px;">'),
+        ("<blockquote>", '<blockquote style="border-left:4px solid #C96442;margin:16px 0;padding:8px 16px;color:#555;">'),
+    ]
+    for old, new in replacements:
+        html = html.replace(old, new)
+    # 정렬 스타일이 붙은 th/td도 동일하게 테두리를 갖도록 보정
+    html = re.sub(
+        r'<(th|td) style="text-align: (left|center|right);">',
+        lambda m: (f'<{m.group(1)} style="border:1px solid #ccc;padding:8px;'
+                   f'text-align:{m.group(2)};'
+                   f'{"background:#f5f5f5;font-weight:bold;" if m.group(1) == "th" else ""}">'),
+        html,
+    )
+    return html
+
+def copy_rich_box(label, html_content, key):
+    """서식(굵게·제목·표)이 살아있는 상태로 클립보드에 복사하는 버튼을 렌더링합니다."""
+    encoded = base64.b64encode(html_content.encode("utf-8")).decode("ascii")
+    st.components.v1.html(
+        f"""
+<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <button id="rb-{key}" style="padding:9px 18px;border-radius:8px;border:none;
+    background:#1B7F3B;color:#fff;font-weight:700;cursor:pointer;font-size:14px;">
+    ✨ {label} (서식 유지 복사)
+  </button>
+  <span id="rm-{key}" style="margin-left:10px;color:#1B7F3B;font-weight:700;"></span>
+  <div id="rs-{key}" contenteditable="true"
+       style="position:fixed;left:-9999px;top:0;width:800px;"></div>
+</div>
+<script>
+(function() {{
+  var btn = document.getElementById("rb-{key}");
+  var msg = document.getElementById("rm-{key}");
+  var stage = document.getElementById("rs-{key}");
+  var html = decodeURIComponent(escape(atob("{encoded}")));
+
+  function ok() {{
+    msg.textContent = "복사 완료! 블로그에 붙여넣으세요";
+    setTimeout(function() {{ msg.textContent = ""; }}, 3000);
+  }}
+
+  function legacyCopy() {{
+    stage.innerHTML = html;
+    var range = document.createRange();
+    range.selectNodeContents(stage);
+    var sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    var done = document.execCommand("copy");
+    sel.removeAllRanges();
+    stage.innerHTML = "";
+    if (done) {{ ok(); }} else {{ msg.textContent = "복사 실패 — 다시 눌러주세요"; }}
+  }}
+
+  btn.addEventListener("click", function() {{
+    if (window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) {{
+      var item = new ClipboardItem({{
+        "text/html": new Blob([html], {{type: "text/html"}}),
+        "text/plain": new Blob([stage.textContent || html.replace(/<[^>]+>/g, "")], {{type: "text/plain"}})
+      }});
+      navigator.clipboard.write([item]).then(ok).catch(legacyCopy);
+    }} else {{
+      legacyCopy();
+    }}
+  }});
+}})();
+</script>
+""",
+        height=52,
+    )
+
 def copy_box(label, text, key):
     """복사 가능한 텍스트 박스를 렌더링합니다."""
     encoded = base64.b64encode(text.encode("utf-8")).decode("ascii")
@@ -925,6 +1007,26 @@ def generate_mcq_html(questions, title, speaker):
     html += f'<footer>{title} · {speaker} 강의 기반 문제</footer></div></body></html>'
     return html
 
+def mcq_to_rich_html(questions, title):
+    """5지선다 문제를 한글(HWP)·블로그에 붙여넣을 수 있는 서식 HTML로 만듭니다."""
+    html = f'<h2 style="font-size:20px;font-weight:bold;">{title} — 5지선다 문제</h2>'
+    for i, q in enumerate(questions, 1):
+        html += f'<p style="margin:18px 0 8px;"><b>{i}. {q.get("question","")}</b></p>'
+        for c in q.get("choices", []) or []:
+            html += f'<p style="margin:3px 0 3px 16px;">{c}</p>'
+        html += (f'<p style="margin:8px 0 4px;"><b>정답: {q.get("answer","")}</b></p>'
+                 f'<p style="margin:0 0 8px;color:#555;">해설: {q.get("explanation","")}</p>')
+    return html
+
+def ox_to_rich_html(questions, title):
+    """O/X 문제를 한글(HWP)·블로그에 붙여넣을 수 있는 서식 HTML로 만듭니다."""
+    html = f'<h2 style="font-size:20px;font-weight:bold;">{title} — O/X 문제</h2>'
+    for i, q in enumerate(questions, 1):
+        html += (f'<p style="margin:14px 0 4px;"><b>{i}. {q.get("question","")}</b></p>'
+                 f'<p style="margin:0 0 4px;"><b>정답: {q.get("answer","")}</b></p>'
+                 f'<p style="margin:0 0 8px;color:#555;">해설: {q.get("explanation","")}</p>')
+    return html
+
 def mcq_to_text(questions, title):
     lines = [f"[{title}] 5지선다 문제", ""]
     for i, q in enumerate(questions, 1):
@@ -1176,9 +1278,20 @@ if st.session_state.stage == "done" and st.session_state.results:
         st.markdown(f"**키워드:** {', '.join(blog.get('keywords', []) or [])}")
         st.divider()
         body = blog.get("markdown", "")
-        copy_box("블로그 본문", body, "res_blog")
-        st.download_button("📥 마크다운 다운로드", data=body,
-                           file_name="blog_post.md", mime="text/markdown", key="dl_blog")
+        rich = markdown_to_rich_html(body)
+
+        st.markdown("**블로그에 바로 붙여넣기** — 아래 초록 버튼을 누르고 네이버 블로그·티스토리 편집기에 그대로 붙여넣으세요. 제목·굵게·표 서식이 그대로 유지됩니다.")
+        copy_rich_box("블로그 본문", rich, "res_blog_rich")
+
+        with st.expander("다른 형식으로 복사·저장하기"):
+            copy_box("마크다운 원문", body, "res_blog_md")
+            st.download_button("📥 마크다운(.md) 다운로드", data=body,
+                               file_name="blog_post.md", mime="text/markdown", key="dl_blog_md")
+            st.download_button("📥 HTML 다운로드", data=rich,
+                               file_name="blog_post.html", mime="text/html", key="dl_blog_html")
+
+        st.divider()
+        st.caption("미리보기")
         st.markdown(body)
 
     with tabs[4]:
@@ -1226,10 +1339,12 @@ if st.session_state.stage == "done" and st.session_state.results:
                 except Exception as e:
                     st.error(f"추가 생성 실패: {e}")
         html = generate_mcq_html(r.get("mcq", []), title, speaker)
-        text = mcq_to_text(r.get("mcq", []), title)
-        copy_box("문제 전체(한글 텍스트)", text, "res_mcq")
-        st.download_button("📥 HTML 다운로드", data=html,
-                           file_name="mcq.html", mime="text/html", key="dl_mcq")
+        copy_rich_box("문제 전체", mcq_to_rich_html(r.get("mcq", []), title), "res_mcq_rich")
+        st.caption("한글(HWP)·블로그에 붙여넣으면 문제·정답·해설 서식이 그대로 유지됩니다.")
+        with st.expander("일반 텍스트로 복사·저장하기"):
+            copy_box("문제 전체(일반 텍스트)", mcq_to_text(r.get("mcq", []), title), "res_mcq")
+            st.download_button("📥 HTML 다운로드", data=html,
+                               file_name="mcq.html", mime="text/html", key="dl_mcq")
         st.components.v1.html(html, height=620, scrolling=True)
 
     with tabs[7]:
@@ -1247,8 +1362,10 @@ if st.session_state.stage == "done" and st.session_state.results:
                 except Exception as e:
                     st.error(f"추가 생성 실패: {e}")
         html = generate_ox_html(r.get("ox", []), title, speaker)
-        text = ox_to_text(r.get("ox", []), title)
-        copy_box("문제 전체(한글 텍스트)", text, "res_ox")
-        st.download_button("📥 HTML 다운로드", data=html,
-                           file_name="ox.html", mime="text/html", key="dl_ox")
+        copy_rich_box("문제 전체", ox_to_rich_html(r.get("ox", []), title), "res_ox_rich")
+        st.caption("한글(HWP)·블로그에 붙여넣으면 문제·정답·해설 서식이 그대로 유지됩니다.")
+        with st.expander("일반 텍스트로 복사·저장하기"):
+            copy_box("문제 전체(일반 텍스트)", ox_to_text(r.get("ox", []), title), "res_ox")
+            st.download_button("📥 HTML 다운로드", data=html,
+                               file_name="ox.html", mime="text/html", key="dl_ox")
         st.components.v1.html(html, height=620, scrolling=True)
