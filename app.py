@@ -1,6 +1,7 @@
 import streamlit as st
 import re
 import io
+import os
 import json
 import base64
 import hashlib
@@ -8,7 +9,6 @@ from datetime import datetime
 from pathlib import Path
 from youtube_transcript_api import YouTubeTranscriptApi
 import google.generativeai as genai
-from streamlit_local_storage import LocalStorage
 
 # Streamlit 페이지 설정
 st.set_page_config(page_title="유튜브 강의 콘텐츠 7종 자동 생성기", layout="wide")
@@ -238,13 +238,93 @@ def copy_box(label, text, key):
         height=50,
     )
 
-# API 키 저장/불러오기 (브라우저 localStorage에만 저장, 서버에는 저장되지 않음)
-local_storage = LocalStorage()
-saved_api_key = local_storage.getItem("gemini_api_key") or ""
-api_key = st.sidebar.text_input("Gemini API Key 입력", type="password", value=saved_api_key)
+# ============================================================
+# API 키 저장 / 불러오기
+# 내 컴퓨터에서 실행할 때만 파일로 저장한다.
+# 공용 서버(Streamlit Cloud)는 다른 사람도 접속하므로 저장하지 않는다.
+# ============================================================
+API_KEY_FILE = Path.home() / ".youtube_lecture_generator" / "api_key.txt"
+
+def is_shared_host():
+    """여러 사람이 접속하는 공용 서버에서 실행 중인지 판단합니다."""
+    return os.path.exists("/mount/src") or bool(os.environ.get("STREAMLIT_SHARING_MODE"))
+
+def load_saved_api_key():
+    if is_shared_host():
+        return ""
+    try:
+        return API_KEY_FILE.read_text(encoding="utf-8").strip()
+    except Exception:
+        return ""
+
+def save_api_key(key):
+    if is_shared_host():
+        return False
+    try:
+        API_KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        API_KEY_FILE.write_text(key, encoding="utf-8")
+        return True
+    except Exception:
+        return False
+
+def delete_saved_api_key():
+    try:
+        API_KEY_FILE.unlink()
+        return True
+    except Exception:
+        return False
+
+saved_api_key = load_saved_api_key()
+
+st.sidebar.subheader("🔑 Gemini API 키")
+api_key = st.sidebar.text_input(
+    "API 키", type="password", value=saved_api_key,
+    placeholder="AIza... 로 시작하는 키", label_visibility="collapsed",
+)
+
 if api_key and api_key != saved_api_key:
-    local_storage.setItem("gemini_api_key", api_key, key="save_gemini_api_key")
-st.sidebar.caption("🔒 입력한 키는 이 브라우저에만 저장되며, 서버로 전송되지 않습니다.")
+    if save_api_key(api_key):
+        st.sidebar.success("키를 저장했습니다. 다음부터는 자동으로 입력됩니다.")
+    else:
+        st.sidebar.warning("공용 서버에서는 키를 저장하지 않습니다. 이번 접속에만 사용됩니다.")
+elif api_key and api_key == saved_api_key:
+    st.sidebar.success("저장된 키를 불러왔습니다. 다시 넣지 않아도 됩니다.")
+else:
+    st.sidebar.info("아래 안내를 보고 키를 발급받아 넣어주세요. 한 번만 넣으면 됩니다.")
+
+if saved_api_key and st.sidebar.button("저장된 키 지우기", key="clear_api_key"):
+    delete_saved_api_key()
+    st.rerun()
+
+with st.sidebar.expander("❓ API 키 발급받는 방법 (처음 한 번만)"):
+    st.markdown(
+        """
+**1단계 · 발급 페이지 열기**
+
+👉 [Google AI Studio에서 키 발급받기](https://aistudio.google.com/apikey)
+
+**2단계 · 구글 계정으로 로그인**
+
+평소 쓰시는 구글(Gmail) 계정으로 로그인하세요.
+
+**3단계 · 키 만들기**
+
+`Create API key` (API 키 만들기) 버튼을 누릅니다.
+프로젝트를 고르라고 나오면 아무거나 선택하거나 새로 만드시면 됩니다.
+
+**4단계 · 복사해서 붙여넣기**
+
+`AIza...`로 시작하는 긴 글자가 나옵니다.
+복사 버튼을 눌러 복사한 뒤, 위 입력칸에 붙여넣으세요.
+
+---
+
+💡 **무료입니다.** 개인이 쓰는 정도는 요금이 들지 않습니다.
+
+🔒 **안전합니다.** 키는 이 브라우저에만 저장되고 서버로 보내지 않습니다.
+다만 남에게 알려주지는 마세요.
+        """
+    )
 
 def extract_video_id(url):
     regex = r"(?:v=|youtu\.be\/|\/embed\/|\/v\/)([^\"&?\/\s]{11})"
@@ -1175,6 +1255,58 @@ st.sidebar.caption("⚠️ 온라인(Streamlit Cloud) 저장분은 앱이 재시
 
 # --- 1단계: 입력 ---
 if st.session_state.stage == "input":
+    st.components.v1.html(
+        """
+<div style="font-family:'Pretendard',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+     display:flex;gap:10px;align-items:stretch;flex-wrap:wrap;">
+
+  <div style="flex:1;min-width:150px;background:#FAF8F1;border:1px solid #E7E1D5;
+       border-radius:12px;padding:14px 16px;">
+    <div style="display:inline-block;background:#C96442;color:#fff;font-weight:800;
+         font-size:12px;border-radius:999px;padding:2px 9px;margin-bottom:8px;">1단계</div>
+    <div style="font-weight:800;font-size:14px;color:#28251E;margin-bottom:4px;">넣기</div>
+    <div style="font-size:12.5px;color:#57534A;line-height:1.5;">
+      유튜브 주소를 넣습니다.<br>
+      자막이 없으면 강의 내용을<br>직접 붙여넣어도 됩니다.
+    </div>
+  </div>
+
+  <div style="display:flex;align-items:center;color:#C96442;font-size:20px;font-weight:900;">›</div>
+
+  <div style="flex:1;min-width:150px;background:#FAF8F1;border:1px solid #E7E1D5;
+       border-radius:12px;padding:14px 16px;">
+    <div style="display:inline-block;background:#C96442;color:#fff;font-weight:800;
+         font-size:12px;border-radius:999px;padding:2px 9px;margin-bottom:8px;">2단계</div>
+    <div style="font-weight:800;font-size:14px;color:#28251E;margin-bottom:4px;">정리하기</div>
+    <div style="font-size:12.5px;color:#57534A;line-height:1.5;">
+      버튼을 누르면 AI가<br>
+      오타를 고치고 법령 용어를<br>바로잡아 정리합니다.
+    </div>
+  </div>
+
+  <div style="display:flex;align-items:center;color:#C96442;font-size:20px;font-weight:900;">›</div>
+
+  <div style="flex:1.35;min-width:190px;background:#F5E4DA;border:1px solid #E0876A;
+       border-radius:12px;padding:14px 16px;">
+    <div style="display:inline-block;background:#AD4F30;color:#fff;font-weight:800;
+         font-size:12px;border-radius:999px;padding:2px 9px;margin-bottom:8px;">3단계</div>
+    <div style="font-weight:800;font-size:14px;color:#28251E;margin-bottom:6px;">7종이 한 번에</div>
+    <div style="font-size:12px;color:#57534A;line-height:1.85;">
+      <span style="background:#fff;border-radius:5px;padding:1px 6px;margin-right:3px;">슬라이드</span>
+      <span style="background:#fff;border-radius:5px;padding:1px 6px;margin-right:3px;">웹 학습지</span>
+      <span style="background:#fff;border-radius:5px;padding:1px 6px;margin-right:3px;">블로그 글</span>
+      <span style="background:#fff;border-radius:5px;padding:1px 6px;margin-right:3px;">한눈 요약</span>
+      <span style="background:#fff;border-radius:5px;padding:1px 6px;margin-right:3px;">체계도</span>
+      <span style="background:#fff;border-radius:5px;padding:1px 6px;margin-right:3px;">5지선다</span>
+      <span style="background:#fff;border-radius:5px;padding:1px 6px;">O/X</span>
+    </div>
+  </div>
+
+</div>
+""",
+        height=175,
+    )
+
     st.subheader("1단계 · 강의 원본 가져오기")
     youtube_url = st.text_input("유튜브 영상 주소", placeholder="https://www.youtube.com/watch?v=...")
 
