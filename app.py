@@ -30,6 +30,42 @@ def get_youtube_transcript(video_id):
     except Exception as e:
         return None
 
+def get_working_model():
+    """지금 이 API 키로 실제 사용 가능한 Gemini 모델을 찾아서 반환합니다.
+    모델명이 서비스 종료되어도 자동으로 대체 모델을 사용합니다."""
+    preferred = [
+        "gemini-flash-latest",
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-pro-latest",
+        "gemini-2.5-pro",
+        "gemini-1.5-flash",
+        "gemini-1.5-pro",
+    ]
+    available = set()
+    try:
+        for m in genai.list_models():
+            if "generateContent" in getattr(m, "supported_generation_methods", []):
+                available.add(m.name.split("/")[-1])
+    except Exception:
+        pass
+
+    candidates = [name for name in preferred if not available or name in available]
+    if not candidates and available:
+        candidates = list(available)
+    if not candidates:
+        candidates = preferred
+
+    last_error = None
+    for name in candidates:
+        try:
+            model = genai.GenerativeModel(name)
+            return model
+        except Exception as e:
+            last_error = e
+            continue
+    raise RuntimeError(f"사용 가능한 Gemini 모델을 찾지 못했습니다: {last_error}")
+
 def clean_transcript_with_ai(model, raw_text):
     prompt = f"""당신은 부동산 공법 강의 전문 편집자입니다.
 아래는 유튜브 강의를 그대로 받아쓰기한 원본 스크립트이며, 음성 인식 오타·띄어쓰기 오류·불필요한 추임새가 섞여 있을 수 있습니다.
@@ -432,9 +468,9 @@ if st.session_state.manual_mode:
             st.error("스크립트를 붙여넣어 주세요.")
         else:
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-1.5-pro')
             with st.spinner("AI가 오타를 고치고 법령 용어에 맞게 정리하는 중입니다..."):
                 try:
+                    model = get_working_model()
                     cleaned = clean_transcript_with_ai(model, manual_text)
                     st.session_state.transcript = cleaned
                     st.session_state.ready_to_generate = True
@@ -450,9 +486,9 @@ if st.session_state.manual_mode:
 # 구조화 데이터 + HTML 생성
 if st.session_state.ready_to_generate and st.session_state.transcript:
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-pro')
     with st.spinner("2/3 AI가 강의를 분석하고 구조화 데이터를 생성 중입니다..."):
         try:
+            model = get_working_model()
             data = generate_structured_data(model, st.session_state.transcript)
         except Exception as e:
             st.error(f"처리 중 오류가 발생했습니다: {e}")
