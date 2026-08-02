@@ -12,7 +12,7 @@ st.title("🎥 유튜브 자막 기반 슬라이드 & 웹 학습지 자동 생�
 api_key = st.sidebar.text_input("Gemini API Key 입력", type="password")
 
 def extract_video_id(url):
-    regex = r"(?:v=|\/\|youtu\.be\/|\/embed\/|\/v\/)([^\"&?\/\s]{11})"
+    regex = r"(?:v=|youtu\.be\/|\/embed\/|\/v\/)([^\"&?\/\s]{11})"
     match = re.search(regex, url)
     return match.group(1) if match else None
 
