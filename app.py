@@ -251,13 +251,58 @@ def extract_video_id(url):
     match = re.search(regex, url)
     return match.group(1) if match else None
 
-def get_youtube_transcript(video_id):
+def build_transcript_api():
+    """프록시 설정이 있으면 적용해 YouTubeTranscriptApi를 만듭니다.
+    Streamlit Cloud 등 데이터센터 IP는 유튜브가 차단하므로 프록시가 필요할 수 있습니다."""
     try:
-        ytt_api = YouTubeTranscriptApi()
-        fetched_transcript = ytt_api.fetch(video_id, languages=['ko'])
-        return " ".join([snippet.text for snippet in fetched_transcript])
+        secrets = st.secrets
+    except Exception:
+        secrets = {}
+
+    ws_user = secrets.get("WEBSHARE_PROXY_USERNAME") if secrets else None
+    ws_pass = secrets.get("WEBSHARE_PROXY_PASSWORD") if secrets else None
+    if ws_user and ws_pass:
+        from youtube_transcript_api.proxies import WebshareProxyConfig
+        return YouTubeTranscriptApi(
+            proxy_config=WebshareProxyConfig(proxy_username=ws_user, proxy_password=ws_pass)
+        )
+
+    http_url = secrets.get("HTTP_PROXY_URL") if secrets else None
+    if http_url:
+        from youtube_transcript_api.proxies import GenericProxyConfig
+        return YouTubeTranscriptApi(
+            proxy_config=GenericProxyConfig(http_url=http_url, https_url=http_url)
+        )
+
+    return YouTubeTranscriptApi()
+
+def get_youtube_transcript(video_id):
+    """(자막문자열, 오류메시지) 튜플을 반환합니다. 성공 시 오류메시지는 None입니다."""
+    try:
+        api = build_transcript_api()
+        try:
+            fetched = api.fetch(video_id, languages=["ko"])
+        except Exception:
+            # 한국어가 없으면 사용 가능한 첫 번째 자막으로 대체
+            listing = api.list(video_id)
+            transcript = next(iter(listing))
+            fetched = transcript.fetch()
+        return " ".join(snippet.text for snippet in fetched), None
     except Exception as e:
-        return None
+        name = type(e).__name__
+        detail = str(e).strip().splitlines()
+        detail = detail[0] if detail else name
+        if "IpBlocked" in name or "RequestBlocked" in name:
+            return None, ("유튜브가 이 서버의 IP를 차단했습니다. "
+                          "클라우드(Streamlit Cloud) 환경에서 흔히 발생하며, 영상이나 자막 문제가 아닙니다. "
+                          "아래에 스크립트를 직접 붙여넣거나, 내 컴퓨터에서 앱을 실행하면 정상 동작합니다.")
+        if "Disabled" in name:
+            return None, "이 영상은 자막이 꺼져 있습니다. 아래에 스크립트를 직접 붙여넣어 주세요."
+        if "NoTranscriptFound" in name or "NotTranslatable" in name:
+            return None, "이 영상에서 사용할 수 있는 자막을 찾지 못했습니다. 아래에 직접 붙여넣어 주세요."
+        if "VideoUnavailable" in name:
+            return None, "영상을 찾을 수 없습니다. 주소를 다시 확인해주세요."
+        return None, f"자막을 가져오지 못했습니다 ({name}): {detail}"
 
 def get_working_model():
     """지금 이 API 키로 실제 사용 가능한 Gemini 모델을 찾아서 반환합니다.
@@ -1140,7 +1185,7 @@ if st.session_state.stage == "input":
                 st.error("올바른 유튜브 URL이 아닙니다.")
             else:
                 with st.spinner("유튜브 자막을 가져오는 중입니다..."):
-                    raw = get_youtube_transcript(video_id)
+                    raw, fetch_error = get_youtube_transcript(video_id)
                 if raw:
                     genai.configure(api_key=api_key)
                     with st.spinner("AI가 오타·법령 용어·문맥을 정리하는 중입니다..."):
@@ -1153,7 +1198,7 @@ if st.session_state.stage == "input":
                         except Exception as e:
                             st.error(f"정리 중 오류가 발생했습니다: {e}")
                 else:
-                    st.warning("자막을 자동으로 가져올 수 없습니다. 아래에 스크립트를 직접 붙여넣어 주세요.")
+                    st.warning(fetch_error or "자막을 자동으로 가져올 수 없습니다.")
 
     st.divider()
     st.caption("자막이 없거나 자동 추출이 안 되는 영상은 아래에 직접 붙여넣으세요.")
