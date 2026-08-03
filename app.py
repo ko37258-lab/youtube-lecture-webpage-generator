@@ -1150,6 +1150,76 @@ def generate_onepager_data(model, transcript):
 ```"""
     return call_json(model, prompt)
 
+def generate_infographic_data(model, transcript):
+    """한 장으로 훑어보는 인포그래픽 데이터를 만듭니다."""
+    prompt = f"""당신은 정보 시각화 디자이너입니다.
+아래 강의 내용을 '한눈에 보는 인포그래픽' 한 장으로 재구성하세요.
+
+[작성 원칙]
+- 강의에 나온 내용·수치만 쓰세요. 없는 숫자를 만들지 마세요.
+- 글자를 줄이고 숫자와 짧은 어구로 보여주세요. 문장을 길게 쓰지 마세요.
+- stats는 강의에서 가장 인상적인 숫자 3~4개. value는 짧게(예: "5m", "2배", "12월").
+- compare는 전후·대안을 견주는 항목. before/after는 12자 이내.
+- bars는 크기를 견줄 수 있는 수치. value는 숫자만.
+- timeline은 시간 순서. 없으면 빈 배열.
+- takeaways는 마지막에 남길 결론 3개, 각 20자 이내.
+
+[강의 내용]
+{transcript[:14000]}
+
+아래 JSON 형태로만 응답하세요:
+```json
+{{
+  "headline": "인포그래픽 대제목 (20자 이내)",
+  "subhead": "부제 한 줄 (35자 이내)",
+  "stats": [{{"value": "5m", "label": "이격거리", "note": "10~17m 구간"}}],
+  "compare": {{"caption": "무엇이 달라지나", "rows": [
+      {{"item": "4층", "before": "6.5m", "after": "5m"}}]}},
+  "bars": {{"caption": "비교", "unit": "m", "items": [{{"name": "현행", "value": 6.5}}]}},
+  "timeline": [{{"when": "2026.12", "what": "시행 예상"}}],
+  "takeaways": ["결론 1", "결론 2", "결론 3"]
+}}
+```"""
+    return call_json(model, prompt)
+
+def generate_shorts_data(model, transcript):
+    """유튜브 쇼츠용 구성안을 만듭니다."""
+    prompt = f"""당신은 조회수가 잘 나오는 부동산 유튜브 쇼츠를 만드는 기획자입니다.
+아래 강의 내용에서 쇼츠로 만들 만한 소재를 뽑아 3편을 구성하세요.
+
+[구성 원칙]
+- 각 편은 45~60초 분량. 한 편에 한 가지 메시지만 다루세요.
+- hook은 첫 3초에 넘기지 못하게 붙잡는 문장. 질문이나 반전으로 쓰세요.
+- script는 실제로 읽을 나레이션. 구어체로, 한 줄에 한 호흡으로 끊어 쓰세요.
+- caption은 화면에 크게 박을 자막 문구. 각 8자 이내로 짧게.
+- visual은 그 장면에 무엇을 보여줄지 (자료 화면·도표·손글씨 등).
+- 강의에 없는 내용·수치를 만들지 마세요.
+
+[강의 내용]
+{transcript[:14000]}
+
+아래 JSON 형태로만 응답하세요. 문자열 안 줄바꿈은 \\n 으로 쓰세요:
+```json
+{{
+  "series_title": "시리즈 제목",
+  "shorts": [
+    {{
+      "no": 1,
+      "title": "이 편의 제목",
+      "hook": "첫 3초 대사",
+      "seconds": 50,
+      "beats": [
+        {{"time": "0-3초", "caption": "자막 문구", "script": "나레이션", "visual": "화면 구성"}}
+      ],
+      "cta": "마지막에 붙일 한 줄",
+      "hashtags": ["#공인중개사", "#건축법"],
+      "thumbnail_text": "썸네일에 넣을 문구 (10자 이내)"
+    }}
+  ]
+}}
+```"""
+    return call_json(model, prompt)
+
 # ================= ==========================================
 # 1. SLIDES HTML 템플릿 생성 함수 (juntaekslides.html 스타일)
 # ============================================================
@@ -2188,6 +2258,295 @@ def generate_onepager_html(od, speaker):
 </body>
 </html>"""
 
+def generate_infographic_html(gd, title, speaker):
+    """한눈에 훑는 인포그래픽 (Material Design). 텍스트는 실제 글자라 인쇄해도 선명합니다."""
+    headline = gd.get("headline") or title
+    subhead = gd.get("subhead", "")
+    stats = gd.get("stats") or []
+    compare = gd.get("compare") or {}
+    bars = gd.get("bars") or {}
+    timeline = gd.get("timeline") or []
+    takeaways = gd.get("takeaways") or []
+
+    accents = ["var(--m-blue)", "var(--m-green)", "var(--m-yellow)", "var(--m-red)"]
+    tints = ["var(--p50)", "var(--success-bg)", "var(--warning-bg)", "var(--error-bg)"]
+
+    stat_cards = "".join(
+        f'<div class="stat" style="--a:{accents[i % 4]};--t:{tints[i % 4]}">'
+        f'<b>{html_escape(str(s.get("value","")))}</b>'
+        f'<span class="l">{html_escape(str(s.get("label","")))}</span>'
+        + (f'<span class="n">{html_escape(str(s.get("note")))}</span>' if s.get("note") else "")
+        + "</div>"
+        for i, s in enumerate(stats[:4])
+    )
+
+    compare_block = ""
+    rows = compare.get("rows") or []
+    if rows:
+        cells = "".join(
+            f'<div class="crow"><span class="ci">{html_escape(str(x.get("item","")))}</span>'
+            f'<span class="cb">{html_escape(str(x.get("before","")))}</span>'
+            f'<span class="ca-arrow">→</span>'
+            f'<span class="ca">{html_escape(str(x.get("after","")))}</span></div>'
+            for x in rows
+        )
+        compare_block = (
+            f'<section class="card"><h2>{html_escape(compare.get("caption","무엇이 달라지나"))}</h2>'
+            f'<div class="clegend"><span>현재</span><span>바뀐 뒤</span></div>'
+            f'<div class="ctable">{cells}</div></section>'
+        )
+
+    bars_block = _svg_bar_chart(bars) if (bars.get("items")) else ""
+    if bars_block:
+        bars_block = f'<section class="card"><h2>{html_escape(bars.get("caption","수치 비교"))}</h2>{bars_block}</section>'
+
+    tl_block = ""
+    if timeline:
+        pts = "".join(
+            f'<div class="tp"><span class="dot"></span>'
+            f'<b>{html_escape(str(t.get("when","")))}</b>'
+            f'<span>{html_escape(str(t.get("what","")))}</span></div>'
+            for t in timeline
+        )
+        tl_block = f'<section class="card"><h2>언제 무엇이</h2><div class="tl">{pts}</div></section>'
+
+    take_block = ""
+    if takeaways:
+        items = "".join(
+            f'<div class="take"><b>{i}</b><span>{html_escape(str(t))}</span></div>'
+            for i, t in enumerate(takeaways[:3], 1)
+        )
+        take_block = f'<section class="card take-card"><h2>딱 이것만 기억하세요</h2><div class="takes">{items}</div></section>'
+
+    return f"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{html_escape(headline)} — 인포그래픽</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Noto+Sans+KR:wght@400;500;700;900&display=swap">
+<style>
+{MATERIAL_CSS}
+  body{{background:var(--n200);display:flex;justify-content:center;padding:18px;}}
+  .sheet{{
+    width:100%;max-width:760px;background:var(--surface);
+    border-radius:var(--r-xl);overflow:hidden;box-shadow:var(--sh-3);
+  }}
+  .hero{{
+    padding:34px 32px 30px;color:#fff;
+    background:
+      radial-gradient(circle at 88% 12%, rgba(251,188,4,.30) 0 22%, transparent 23%),
+      radial-gradient(circle at 8% 92%, rgba(234,67,53,.26) 0 20%, transparent 21%),
+      linear-gradient(135deg,var(--p700),var(--p900));
+  }}
+  .kicker{{
+    display:inline-flex;align-items:center;gap:8px;margin-bottom:14px;
+    padding:6px 13px;border-radius:var(--r-full);background:rgba(255,255,255,.20);
+    font-size:11.5px;font-weight:500;letter-spacing:.8px;
+  }}
+  .hero h1{{font-size:34px;font-weight:900;line-height:1.15;letter-spacing:-.8px;}}
+  .hero p{{margin-top:11px;font-size:14.5px;color:rgba(255,255,255,.90);line-height:1.55;}}
+  .stats{{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+    gap:10px;padding:20px 22px 6px;}}
+  .stat{{
+    background:var(--t);border-top:4px solid var(--a);border-radius:var(--r-md);
+    padding:15px 16px;display:flex;flex-direction:column;gap:3px;
+  }}
+  .stat b{{font-size:29px;font-weight:900;color:var(--a);letter-spacing:-1px;line-height:1;}}
+  .stat .l{{font-size:13px;font-weight:700;color:var(--fg);}}
+  .stat .n{{font-size:11px;color:var(--fg2);}}
+  .card{{margin:14px 22px;padding:20px 22px;background:var(--surface-low);
+    border-radius:var(--r-lg);}}
+  .card h2{{font-size:17px;font-weight:700;margin-bottom:14px;}}
+  .clegend{{display:grid;grid-template-columns:92px 1fr 26px 1fr;gap:8px;
+    font-size:10.5px;color:var(--fg3);font-weight:500;margin-bottom:6px;}}
+  .clegend span:first-child{{grid-column:2;}}
+  .clegend span:last-child{{grid-column:4;}}
+  .ctable{{display:flex;flex-direction:column;gap:7px;}}
+  .crow{{display:grid;grid-template-columns:92px 1fr 26px 1fr;gap:8px;align-items:center;}}
+  .ci{{font-size:12.5px;font-weight:700;color:var(--fg);}}
+  .cb{{background:var(--n100);color:var(--fg2);border-radius:var(--r-sm);
+    padding:8px 11px;font-size:12.5px;text-align:center;}}
+  .ca-arrow{{text-align:center;color:var(--p500);font-weight:700;}}
+  .ca{{background:var(--p100);color:var(--p900);border-radius:var(--r-sm);
+    padding:8px 11px;font-size:12.5px;font-weight:700;text-align:center;}}
+  .tl{{display:flex;flex-direction:column;gap:0;}}
+  .tp{{display:grid;grid-template-columns:16px 78px 1fr;gap:11px;align-items:baseline;
+    padding:9px 0;position:relative;}}
+  .tp:not(:last-child)::after{{content:"";position:absolute;left:7px;top:22px;bottom:-4px;
+    width:2px;background:var(--p200);}}
+  .tp .dot{{width:11px;height:11px;border-radius:50%;background:var(--p500);
+    box-shadow:0 0 0 3px var(--p50);margin-top:4px;}}
+  .tp b{{font-size:12.5px;font-weight:700;color:var(--p700);}}
+  .tp span:last-child{{font-size:12.5px;color:var(--fg2);line-height:1.5;}}
+  .take-card{{background:var(--p50);}}
+  .takes{{display:flex;flex-direction:column;gap:9px;}}
+  .take{{display:flex;align-items:center;gap:12px;background:var(--surface);
+    border-radius:var(--r-md);padding:13px 15px;}}
+  .take b{{flex:none;width:24px;height:24px;display:grid;place-items:center;border-radius:50%;
+    background:var(--p500);color:#fff;font-size:12px;}}
+  .take span{{font-size:13.5px;font-weight:500;}}
+  .foot{{padding:16px 24px 22px;display:flex;align-items:center;justify-content:space-between;
+    gap:10px;font-size:11px;color:var(--fg3);}}
+  @media print{{
+    body{{background:#fff;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
+    .sheet{{box-shadow:none;max-width:none;border-radius:0;}}
+    .card{{break-inside:avoid;}}
+  }}
+  @media (max-width:560px){{
+    .hero{{padding:26px 20px;}} .hero h1{{font-size:26px;}}
+    .card{{margin:12px 14px;padding:16px;}} .stats{{padding:16px 14px 4px;}}
+    .clegend,.crow{{grid-template-columns:70px 1fr 20px 1fr;}}
+  }}
+</style>
+</head>
+<body>
+  <div class="sheet">
+    <header class="hero">
+      <div class="kicker"><span class="g-dots"><i></i><i></i><i></i><i></i></span>{html_escape(speaker)} 강의 요약</div>
+      <h1>{html_escape(headline)}</h1>
+      <p>{html_escape(subhead)}</p>
+    </header>
+    <div class="stats">{stat_cards}</div>
+    {compare_block}
+    {bars_block}
+    {tl_block}
+    {take_block}
+    <div class="foot">
+      <span>{html_escape(title)} · {html_escape(speaker)}</span>
+      <span class="g-dots"><i></i><i></i><i></i><i></i></span>
+    </div>
+  </div>
+</body>
+</html>"""
+
+def generate_shorts_html(sd, title, speaker):
+    """쇼츠 구성안 (Material Design). 촬영·편집할 때 보면서 쓰는 대본입니다."""
+    series = sd.get("series_title") or title
+    shorts = sd.get("shorts") or []
+
+    body = ""
+    for s in shorts:
+        beats = s.get("beats") or []
+        rows = "".join(
+            f'<tr><td class="t">{html_escape(str(b.get("time","")))}</td>'
+            f'<td class="cap">{html_escape(str(b.get("caption","")))}</td>'
+            f'<td>{html_escape(str(b.get("script","")))}</td>'
+            f'<td class="vis">{html_escape(str(b.get("visual","")))}</td></tr>'
+            for b in beats
+        )
+        tags = " ".join(html_escape(str(t)) for t in (s.get("hashtags") or []))
+        body += f"""
+    <section class="short">
+      <div class="sh-head">
+        <span class="sh-no">{html_escape(str(s.get('no','')))}</span>
+        <div>
+          <h2>{html_escape(str(s.get('title','')))}</h2>
+          <span class="sec">{html_escape(str(s.get('seconds','')))}초</span>
+        </div>
+      </div>
+      <div class="hook"><strong>첫 3초 훅</strong><span>{html_escape(str(s.get('hook','')))}</span></div>
+      <div class="tbl"><table>
+        <thead><tr><th>시간</th><th>자막</th><th>나레이션</th><th>화면</th></tr></thead>
+        <tbody>{rows}</tbody>
+      </table></div>
+      <div class="meta">
+        <div class="thumb"><strong>썸네일 문구</strong><span>{html_escape(str(s.get('thumbnail_text','')))}</span></div>
+        <div class="cta"><strong>마무리 한 줄</strong><span>{html_escape(str(s.get('cta','')))}</span></div>
+      </div>
+      <div class="tags">{tags}</div>
+    </section>"""
+
+    return f"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{html_escape(series)} — 쇼츠 구성안</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Noto+Sans+KR:wght@400;500;700;900&display=swap">
+<style>
+{MATERIAL_CSS}
+  body{{background:var(--surface-low);}}
+  .wrap{{max-width:940px;margin:0 auto;padding:26px 20px 56px;}}
+  .top{{
+    background:linear-gradient(135deg,#202124,#3C4043);color:#fff;
+    border-radius:var(--r-xl) var(--r-xl) var(--r-md) var(--r-xl);
+    padding:28px 30px;margin-bottom:16px;
+  }}
+  .top .kicker{{
+    display:inline-flex;align-items:center;gap:8px;margin-bottom:12px;padding:6px 12px;
+    border-radius:var(--r-full);background:rgba(255,255,255,.16);font-size:11.5px;font-weight:500;
+  }}
+  .top h1{{font-size:29px;font-weight:900;letter-spacing:-.6px;line-height:1.18;}}
+  .top p{{margin-top:9px;font-size:13.5px;color:rgba(255,255,255,.82);}}
+  .short{{
+    background:var(--surface);border:1px solid var(--line-soft);border-radius:var(--r-lg);
+    padding:22px 24px;margin-bottom:14px;
+  }}
+  .sh-head{{display:flex;align-items:center;gap:13px;margin-bottom:14px;}}
+  .sh-no{{
+    flex:none;width:38px;height:38px;display:grid;place-items:center;border-radius:var(--r-md);
+    background:var(--m-red);color:#fff;font-weight:900;font-size:15px;
+  }}
+  .sh-head h2{{font-size:20px;font-weight:700;}}
+  .sec{{font-size:11.5px;font-weight:500;color:var(--fg3);}}
+  .hook{{
+    display:flex;flex-direction:column;gap:4px;padding:14px 16px;margin-bottom:14px;
+    background:var(--warning-bg);border-radius:var(--r-md);
+  }}
+  .hook strong{{font-size:11px;font-weight:700;color:var(--warning-fg);letter-spacing:.5px;}}
+  .hook span{{font-size:15px;font-weight:700;line-height:1.5;}}
+  .tbl{{overflow-x:auto;}}
+  table{{width:100%;border-collapse:collapse;font-size:13px;min-width:600px;}}
+  th{{background:var(--p50);color:var(--p900);font-weight:500;text-align:left;
+    padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap;}}
+  td{{padding:10px 12px;border-bottom:1px solid var(--line-soft);
+    color:var(--fg2);line-height:1.55;vertical-align:top;}}
+  td.t{{white-space:nowrap;font-weight:500;color:var(--p700);font-size:12px;}}
+  td.cap{{font-weight:700;color:var(--fg);}}
+  td.vis{{color:var(--fg3);font-size:12px;}}
+  .meta{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+    gap:10px;margin-top:14px;}}
+  .meta > div{{display:flex;flex-direction:column;gap:4px;padding:12px 14px;
+    background:var(--surface-container);border-radius:var(--r-md);}}
+  .meta strong{{font-size:10.5px;font-weight:700;color:var(--fg3);letter-spacing:.5px;}}
+  .meta span{{font-size:13.5px;font-weight:500;}}
+  .tags{{margin-top:12px;font-size:12px;color:var(--p700);font-weight:500;line-height:1.7;}}
+  @media print{{
+    body{{background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
+    .short{{break-inside:avoid;}}
+  }}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="kicker"><span class="g-dots"><i></i><i></i><i></i><i></i></span>쇼츠 구성안</div>
+    <h1>{html_escape(series)}</h1>
+    <p>{html_escape(speaker)} 강의 기반 · 총 {len(shorts)}편</p>
+  </header>
+{body}
+</div>
+</body>
+</html>"""
+
+def shorts_to_text(sd, title):
+    """쇼츠 대본을 한글·메모장에 붙여넣을 일반 텍스트로 만듭니다."""
+    lines = [f"[{sd.get('series_title') or title}] 쇼츠 구성안", ""]
+    for s in sd.get("shorts") or []:
+        lines.append(f"── {s.get('no','')}. {s.get('title','')} ({s.get('seconds','')}초)")
+        lines.append(f"   훅: {s.get('hook','')}")
+        lines.append("")
+        for b in s.get("beats") or []:
+            lines.append(f"   [{b.get('time','')}] 자막: {b.get('caption','')}")
+            lines.append(f"      나레이션: {b.get('script','')}")
+            lines.append(f"      화면: {b.get('visual','')}")
+        lines.append(f"   마무리: {s.get('cta','')}")
+        lines.append(f"   썸네일: {s.get('thumbnail_text','')}")
+        lines.append(f"   해시태그: {' '.join(s.get('hashtags') or [])}")
+        lines.append("")
+    return "\n".join(lines)
+
 # ================= ==========================================
 # 10. Streamlit 사용자 인터페이스
 # ============================================================
@@ -2392,43 +2751,78 @@ if st.session_state.stage == "review":
     st.caption("항목마다 AI를 한 번씩 부르기 때문에, 고른 개수만큼만 비용이 듭니다. "
                "필요한 것만 고르면 그만큼 저렴합니다. 나중에 결과 화면에서 더 추가할 수도 있습니다.")
 
-    # (세션키, 화면이름, 설명, 기본선택) — 슬라이드와 학습지는 한 번의 호출을 함께 쓴다
+    # (세션키, 아이콘, 화면이름, 설명, 기본선택) — 슬라이드와 학습지는 한 번의 호출을 함께 쓴다
     PICKS = [
-        ("pick_data", "슬라이드 + 웹 학습지", "발표용 슬라이드와 웹 학습지 (한 번에 같이 만들어짐)", True),
-        ("pick_blog", "블로그 글", "네이버·티스토리에 바로 올릴 SEO 글", True),
-        ("pick_summary", "한눈 요약", "핵심 수치·비교표·절차를 한 화면에", True),
-        ("pick_mindmap", "체계도", "단원 구조를 계층으로 정리", True),
-        ("pick_mcq", "5지선다 문제", "정답·해설 포함 5문제", True),
-        ("pick_ox", "O/X 문제", "정답·해설 포함 10문제", True),
-        ("pick_handout", "학생 배포용 자료", "표·그래프·용어·점검표가 든 인쇄용 자료", False),
-        ("pick_onepager", "A4 한 장 체계도", "인쇄하면 딱 한 장으로 나오는 요약", False),
+        ("pick_data", "📊", "슬라이드 + 웹 학습지", "발표용 슬라이드와 웹 학습지 (한 번에 같이 만들어짐)", True),
+        ("pick_blog", "✍️", "블로그 글", "네이버·티스토리에 바로 올릴 SEO 글", True),
+        ("pick_summary", "📈", "한눈 요약", "핵심 수치·비교표·절차를 한 화면에", True),
+        ("pick_mindmap", "🗺", "체계도", "단원 구조를 계층으로 정리", True),
+        ("pick_mcq", "📋", "5지선다 문제", "정답·해설 포함 5문제", True),
+        ("pick_ox", "⭕", "O/X 문제", "정답·해설 포함 10문제", True),
+        ("pick_handout", "🎒", "학생 배포용 자료", "표·그래프·용어·점검표가 든 인쇄용 자료", False),
+        ("pick_onepager", "📐", "A4 한 장 체계도", "인쇄하면 딱 한 장으로 나오는 요약", False),
+        ("pick_infographic", "🖼", "인포그래픽", "숫자·비교·흐름을 한 장으로 시각화", False),
+        ("pick_shorts", "🎬", "쇼츠 구성안", "3편치 훅·자막·나레이션·해시태그", False),
     ]
-    for key, _, _, default in PICKS:
+    for key, _, _, _, default in PICKS:
         if key not in st.session_state:
             st.session_state[key] = default
 
-    b1, b2, b3 = st.columns([1, 1, 2.2])
+    b1, b2, _ = st.columns([1, 1, 2.2])
     with b1:
         if st.button("전부 선택", key="pick_all"):
-            for key, _, _, _ in PICKS:
+            for key, _, _, _, _ in PICKS:
                 st.session_state[key] = True
             st.rerun()
     with b2:
         if st.button("전부 해제", key="pick_none"):
-            for key, _, _, _ in PICKS:
+            for key, _, _, _, _ in PICKS:
                 st.session_state[key] = False
             st.rerun()
 
     left, right = st.columns(2)
-    for i, (key, label, help_text, _) in enumerate(PICKS):
+    for i, (key, icon, label, help_text, _) in enumerate(PICKS):
         with (left if i % 2 == 0 else right):
-            st.checkbox(label, key=key, help=help_text)
+            st.checkbox(f"{icon} {label}", key=key, help=help_text)
 
-    chosen = [key for key, _, _, _ in PICKS if st.session_state.get(key)]
-    calls = len(chosen)
+    picked = [(icon, label) for key, icon, label, _, _ in PICKS if st.session_state.get(key)]
+    skipped = [(icon, label) for key, icon, label, _, _ in PICKS if not st.session_state.get(key)]
+    calls = len(picked)
+
+    # 고른 것 / 안 고른 것을 눈으로 바로 구분되게 보여준다
+    def _chips(pairs, bg, fg, border):
+        return "".join(
+            f'<span style="display:inline-flex;align-items:center;gap:5px;'
+            f'background:{bg};color:{fg};border:1px solid {border};border-radius:999px;'
+            f'padding:5px 12px;margin:0 6px 6px 0;font-size:12.5px;font-weight:600;">'
+            f'{icon} {html_escape(label)}</span>'
+            for icon, label in pairs
+        ) or '<span style="color:#87878F;font-size:12.5px;">없음</span>'
+
+    st.components.v1.html(
+        f"""
+<div style="font-family:'Inter','Pretendard',-apple-system,sans-serif;color:#050038;">
+  <div style="margin-bottom:12px;">
+    <div style="font-size:11.5px;font-weight:700;color:#1AAD5C;letter-spacing:.5px;
+         margin-bottom:7px;">✓ 만들 것 {calls}개</div>
+    <div>{_chips(picked, '#DCF7E5', '#0F7A40', '#A8E5C2')}</div>
+  </div>
+  <div>
+    <div style="font-size:11.5px;font-weight:700;color:#87878F;letter-spacing:.5px;
+         margin-bottom:7px;">— 안 만들 것 {len(skipped)}개 (나중에 추가 가능)</div>
+    <div>{_chips(skipped, '#F1F1EC', '#87878F', '#E0E0DA')}</div>
+  </div>
+</div>
+""",
+        height=150 + (len(picked) // 3 + len(skipped) // 3) * 14,
+    )
+
     if calls:
-        st.info(f"고른 항목 **{calls}개** · AI 호출 **{calls}번**  \n"
-                f"전부(8개) 고를 때보다 약 **{round((1 - calls / len(PICKS)) * 100)}%** 적게 듭니다.")
+        saved = round((1 - calls / len(PICKS)) * 100)
+        msg = f"AI 호출 **{calls}번**이 듭니다."
+        if saved > 0:
+            msg += f" 전부({len(PICKS)}개) 고를 때보다 약 **{saved}%** 저렴합니다."
+        st.info(msg)
     else:
         st.warning("적어도 하나는 골라주세요.")
 
@@ -2478,6 +2872,12 @@ if st.session_state.stage == "review":
                 if st.session_state.pick_onepager:
                     step("A4 체계도를 만드는 중...")
                     results["onepager"] = generate_onepager_data(model, transcript)
+                if st.session_state.pick_infographic:
+                    step("인포그래픽을 만드는 중...")
+                    results["infographic"] = generate_infographic_data(model, transcript)
+                if st.session_state.pick_shorts:
+                    step("쇼츠 구성안을 만드는 중...")
+                    results["shorts"] = generate_shorts_data(model, transcript)
 
                 progress.progress(1.0, text="완료!")
                 project_id = make_project_id(transcript)
@@ -2519,6 +2919,8 @@ if st.session_state.stage == "done" and st.session_state.results:
         "⭕ 7. O/X",
         "🎒 8. 학생 배포용",
         "📐 9. A4 체계도",
+        "🖼 10. 인포그래픽",
+        "🎬 11. 쇼츠 구성안",
     ])
 
     def ensure_part(result_key, label, generator, btn_key):
@@ -2757,3 +3159,43 @@ if st.session_state.stage == "done" and st.session_state.results:
                     st.rerun()
             st.caption("인쇄할 때 배율은 100%, 여백은 '없음'으로 두면 A4 한 장에 정확히 맞습니다.")
             st.components.v1.html(html, height=1180, scrolling=True)
+
+    # --- 10. 인포그래픽 ---
+    with tabs[10]:
+        st.markdown("**숫자·비교·시간 흐름을 한 장으로 시각화**합니다. "
+                    "블로그·SNS에 올리거나 인쇄해서 나눠주기 좋습니다.")
+        if ensure_part("infographic", "인포그래픽", generate_infographic_data, "gen_infographic"):
+            gd = r["infographic"]
+            html = generate_infographic_html(gd, title, speaker)
+            c1, c2 = st.columns([1.2, 1])
+            with c1:
+                st.download_button("📥 HTML 다운로드", data=html,
+                                   file_name="infographic.html", mime="text/html",
+                                   key="dl_info")
+            with c2:
+                if st.button("🔄 다시 만들기", key="regen_info"):
+                    r.pop("infographic", None)
+                    save_project(st.session_state.project_id, r)
+                    st.rerun()
+            st.caption("이미지로 저장하려면 브라우저에서 열고 인쇄(Ctrl+P) → 'PDF로 저장'을 쓰세요.")
+            st.components.v1.html(html, height=900, scrolling=True)
+
+    # --- 11. 쇼츠 구성안 ---
+    with tabs[11]:
+        st.markdown("**쇼츠 3편치 구성안**입니다. 첫 3초 훅, 시간별 자막·나레이션·화면, "
+                    "썸네일 문구, 해시태그가 들어 있습니다.")
+        if ensure_part("shorts", "쇼츠 구성안", generate_shorts_data, "gen_shorts"):
+            sd = r["shorts"]
+            html = generate_shorts_html(sd, title, speaker)
+            c1, c2 = st.columns([1.2, 1])
+            with c1:
+                st.download_button("📥 HTML 다운로드", data=html,
+                                   file_name="shorts_plan.html", mime="text/html",
+                                   key="dl_shorts")
+            with c2:
+                if st.button("🔄 다시 만들기", key="regen_shorts"):
+                    r.pop("shorts", None)
+                    save_project(st.session_state.project_id, r)
+                    st.rerun()
+            copy_box("대본 전체(일반 텍스트)", shorts_to_text(sd, title), "res_shorts")
+            st.components.v1.html(html, height=900, scrolling=True)
