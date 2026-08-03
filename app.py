@@ -109,20 +109,39 @@ h3{font-size:19px!important;font-weight:600!important;}
   box-shadow:0 0 0 2px rgba(66,98,255,.20)!important;
 }
 
-/* 탭 — 도구바처럼 */
+/* 탭 — 도구바처럼. 항목이 많으니 가로 스크롤 대신 여러 줄로 접어 전부 보이게 한다.
+   Streamlit 버전에 따라 role=tablist / data-baseweb 둘 다 쓰이므로 함께 겨냥한다 */
+.stTabs [role="tablist"],
 .stTabs [data-baseweb="tab-list"]{
   gap:4px;background:#fff;padding:6px;border-radius:10px;
-  border:1px solid var(--miro-line);box-shadow:var(--sh-sm);flex-wrap:wrap;
+  border:1px solid var(--miro-line);box-shadow:var(--sh-sm);
+  display:flex!important;
+  flex-wrap:wrap!important;
+  overflow-x:visible!important;
+  overflow-y:visible!important;
+  white-space:normal!important;
 }
+.stTabs [role="tablist"]::-webkit-scrollbar,
+.stTabs [data-baseweb="tab-list"]::-webkit-scrollbar{display:none;}
+/* 좌우 스크롤 화살표 버튼 숨김 */
+.stTabs [role="tablist"] button[aria-label*="croll"],
+.stTabs [data-baseweb="tab-list"] [data-baseweb="tab-list-scroll-button"]{display:none!important;}
+.stTabs [role="tab"],
 .stTabs [data-baseweb="tab"]{
-  height:auto;padding:9px 14px;border-radius:6px;background:transparent;
-  font-size:13.5px;font-weight:600;color:var(--miro-fg2);
+  height:auto!important;min-height:0!important;
+  padding:9px 13px!important;border-radius:6px;background:transparent;
+  font-size:13px;font-weight:600;color:var(--miro-fg2);
+  flex:0 0 auto!important;white-space:nowrap;
 }
+.stTabs [role="tab"]:hover,
 .stTabs [data-baseweb="tab"]:hover{background:var(--miro-canvas);color:var(--miro-fg);}
-.stTabs [aria-selected="true"]{
+.stTabs [role="tab"][aria-selected="true"],
+.stTabs [data-baseweb="tab"][aria-selected="true"]{
   background:var(--miro-yellow)!important;color:var(--miro-navy)!important;font-weight:700!important;
 }
-.stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"]{display:none;}
+/* 선택 표시용 밑줄/하이라이트 제거 (노란 배경으로 대체) */
+.stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"]{display:none!important;}
+.stTabs [role="tablist"] + div[class*="emotion"]:empty{display:none!important;}
 
 /* 알림 — 스티키 노트 (라운드 2px이 시그니처) */
 div[data-testid="stAlert"]{
@@ -1215,6 +1234,36 @@ def generate_shorts_data(model, transcript):
       "hashtags": ["#공인중개사", "#건축법"],
       "thumbnail_text": "썸네일에 넣을 문구 (10자 이내)"
     }}
+  ]
+}}
+```"""
+    return call_json(model, prompt)
+
+def generate_quiz_pair(model, transcript):
+    """5지선다와 O/X를 한 호출로 함께 출제합니다.
+    전사문을 두 번 보내지 않아 비용이 줄고, 두 문제집이 같은 논점을 겹쳐 내지 않습니다."""
+    prompt = f"""당신은 공인중개사 시험 출제위원입니다.
+아래 강의 내용으로 5지선다 5문제와 O/X 10문제를 함께 출제하세요.
+
+[출제 원칙]
+- 강의에서 다룬 법령·기준·수치에 근거해서만 출제하세요.
+- 5지선다와 O/X가 같은 논점을 반복하지 않게 서로 다른 부분을 다루세요.
+- 5지선다 보기는 ①②③④⑤로 시작하고, 오답도 그럴듯하게 만드세요.
+- O/X는 O와 X가 고르게 섞이도록 하고, 틀린 지문은 수치나 요건을 미묘하게 바꾸세요.
+- 해설은 2~4문장으로 근거를 밝히세요.
+
+[강의 내용]
+{transcript[:14000]}
+
+아래 JSON 형태로만 응답하세요:
+```json
+{{
+  "mcq": [
+    {{"question": "문제", "choices": ["① 보기", "② 보기", "③ 보기", "④ 보기", "⑤ 보기"],
+      "answer": "③", "explanation": "해설"}}
+  ],
+  "ox": [
+    {{"question": "지문", "answer": "O", "explanation": "해설"}}
   ]
 }}
 ```"""
@@ -2787,7 +2836,11 @@ if st.session_state.stage == "review":
 
     picked = [(icon, label) for key, icon, label, _, _ in PICKS if st.session_state.get(key)]
     skipped = [(icon, label) for key, icon, label, _, _ in PICKS if not st.session_state.get(key)]
-    calls = len(picked)
+
+    # 두 문제집을 함께 고르면 한 호출로 묶어 출제하므로 호출 수가 하나 줄어든다
+    quiz_merged = st.session_state.pick_mcq and st.session_state.pick_ox
+    calls = len(picked) - (1 if quiz_merged else 0)
+    max_calls = len(PICKS) - 1
 
     # 고른 것 / 안 고른 것을 눈으로 바로 구분되게 보여준다
     def _chips(pairs, bg, fg, border):
@@ -2818,10 +2871,12 @@ if st.session_state.stage == "review":
     )
 
     if calls:
-        saved = round((1 - calls / len(PICKS)) * 100)
+        saved = round((1 - calls / max_calls) * 100)
         msg = f"AI 호출 **{calls}번**이 듭니다."
+        if quiz_merged:
+            msg += " (5지선다와 O/X는 한 번에 묶어 출제합니다)"
         if saved > 0:
-            msg += f" 전부({len(PICKS)}개) 고를 때보다 약 **{saved}%** 저렴합니다."
+            msg += f"  \n전부 고를 때보다 약 **{saved}%** 저렴합니다."
         st.info(msg)
     else:
         st.warning("적어도 하나는 골라주세요.")
@@ -2860,10 +2915,15 @@ if st.session_state.stage == "review":
                 if st.session_state.pick_mindmap:
                     step("체계도를 만드는 중...")
                     results["mindmap"] = generate_mindmap_data(model, transcript)
-                if st.session_state.pick_mcq:
+                if quiz_merged:
+                    step("문제를 출제하는 중 (5지선다 + O/X)...")
+                    pair = generate_quiz_pair(model, transcript)
+                    results["mcq"] = pair.get("mcq", [])
+                    results["ox"] = pair.get("ox", [])
+                elif st.session_state.pick_mcq:
                     step("5지선다 문제를 출제하는 중...")
                     results["mcq"] = generate_mcq(model, transcript, count=5).get("questions", [])
-                if st.session_state.pick_ox:
+                elif st.session_state.pick_ox:
                     step("O/X 문제를 출제하는 중...")
                     results["ox"] = generate_ox(model, transcript, count=10).get("questions", [])
                 if st.session_state.pick_handout:
