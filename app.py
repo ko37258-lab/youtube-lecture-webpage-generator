@@ -180,7 +180,44 @@ div[data-testid="stCaptionContainer"], .stCaption{
 hr{border-color:var(--miro-line-soft);}
 
 /* 임베드된 결과물 미리보기 */
-iframe{border-radius:8px;background:#fff;}
+iframe{border-radius:8px;background:#fff;max-width:100%;}
+
+/* 3단계 안내 박스 — 좁아지면 아래로 쌓이고, 화살표는 숨긴다 */
+.steps3{display:flex;gap:10px;align-items:stretch;flex-wrap:wrap;margin-bottom:6px;}
+.steps3 .s3{
+  flex:1 1 190px;min-width:0;background:#fff;border:1px solid var(--miro-line);
+  border-radius:8px;padding:14px 16px;
+}
+.steps3 .s3.last{background:var(--miro-yellow-50);border-color:var(--miro-yellow-200);}
+.steps3 .s3 .no{
+  display:inline-block;background:var(--miro-navy);color:#fff;font-weight:700;
+  font-size:11px;border-radius:999px;padding:2px 9px;margin-bottom:8px;
+}
+.steps3 .s3.last .no{background:var(--miro-yellow-700);}
+.steps3 .s3 .t{font-weight:700;font-size:14px;color:var(--miro-fg);margin-bottom:4px;}
+.steps3 .s3 .d{font-size:12.5px;color:var(--miro-fg2);line-height:1.55;}
+.steps3 .tagrow{display:flex;flex-wrap:wrap;gap:4px;margin-top:2px;}
+.steps3 .tagrow span{
+  background:#fff;border:1px solid var(--miro-yellow-200);border-radius:5px;
+  padding:2px 7px;font-size:11.5px;color:var(--miro-fg2);
+}
+@media (max-width:640px){
+  .steps3 .s3{flex:1 1 100%;}
+}
+
+/* 선택 결과 칩 */
+.pickbox{color:var(--miro-fg);margin:2px 0 10px;}
+.pickbox .lbl{font-size:11.5px;font-weight:700;letter-spacing:.5px;margin-bottom:7px;}
+.pickbox .on{color:#0F7A40;}
+.pickbox .off{color:var(--miro-fg3);}
+.pickbox .row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;}
+.pickbox .chip{
+  display:inline-flex;align-items:center;gap:5px;border-radius:999px;
+  padding:5px 12px;font-size:12.5px;font-weight:600;
+}
+.pickbox .chip.yes{background:#DCF7E5;color:#0F7A40;border:1px solid #A8E5C2;}
+.pickbox .chip.no{background:#F1F1EC;color:var(--miro-fg3);border:1px solid #E0E0DA;}
+.pickbox .none{color:var(--miro-fg3);font-size:12.5px;}
 
 @media (max-width:820px){
   .stMain .block-container{padding:20px 16px 32px;border-radius:6px;}
@@ -1692,8 +1729,9 @@ def generate_mindmap_html(md, speaker):
 {SHARED_CSS}
   body{{background:#EDEAE1;}}
   @page{{size:A4;margin:8mm;}}
-  .sheet{{width:210mm;min-height:297mm;margin:14px auto;background:#fff;padding:9mm;
-    display:flex;flex-direction:column;box-shadow:0 4px 18px rgba(0,0,0,.12);}}
+  /* 인쇄는 A4 한 장이지만, 화면이 좁으면 넘치지 않게 줄어들어야 한다 */
+  .sheet{{width:210mm;max-width:100%;min-height:297mm;margin:14px auto;background:#fff;
+    padding:9mm;display:flex;flex-direction:column;box-shadow:0 4px 18px rgba(0,0,0,.12);}}
   .head{{background:var(--night);color:#F4F2EB;border-radius:8px;padding:9px 14px;
     display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;}}
   .head h1{{font-size:16px;font-weight:900;}}
@@ -1709,7 +1747,15 @@ def generate_mindmap_html(md, speaker):
   .grp li{{font-size:9.8px;line-height:1.38;color:var(--ink2);padding-left:8px;position:relative;}}
   .grp li::before{{content:"·";position:absolute;left:1px;color:var(--coral);font-weight:900;}}
   .foot{{margin-top:5px;text-align:center;font-size:9px;color:var(--ink3);}}
-  @media print{{body{{background:#fff;}} .sheet{{margin:0;box-shadow:none;}}}}
+  @media print{{body{{background:#fff;}}
+    .sheet{{margin:0;box-shadow:none;width:210mm;max-width:none;}}}}
+  /* 좁은 화면에서는 2단을 1단으로 풀고 글자를 키운다 */
+  @media (max-width:640px){{
+    .sheet{{min-height:0;padding:16px;}}
+    .cols{{column-count:1;}}
+    .grp li{{font-size:12px;}} .grp .gn{{font-size:12.5px;}}
+    .sec > .nm{{font-size:13px;}} .head h1{{font-size:17px;}}
+  }}
 </style>
 </head>
 <body>
@@ -2286,7 +2332,17 @@ def generate_onepager_html(od, speaker):
   }}
   @media print{{
     body{{background:#fff;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
-    .page{{box-shadow:none;width:210mm;height:297mm;}}
+    .page{{box-shadow:none;width:210mm;height:297mm;transform:none;margin:0;}}
+  }}
+  /* 화면이 A4보다 좁으면 통째로 축소해 보여준다.
+     인쇄 크기는 위 @media print 에서 원래대로 되돌리므로 영향 없다. */
+  @media screen and (max-width:840px){{
+    body{{padding:8px;align-items:flex-start;}}
+    .page{{transform:scale(.62);transform-origin:top center;
+      margin:0 auto -113mm;}}   /* 297mm x (1-.62) 만큼 아래 빈칸을 줄인다 */
+  }}
+  @media screen and (max-width:480px){{
+    .page{{transform:scale(.44);margin:0 auto -166mm;}}
   }}
 </style>
 </head>
@@ -2653,56 +2709,34 @@ else:
 
 # --- 1단계: 입력 ---
 if st.session_state.stage == "input":
-    st.components.v1.html(
+    # iframe(고정 높이)에 넣으면 화면이 좁을 때 잘리므로 본문 흐름에 직접 그린다
+    st.markdown(
         """
-<div style="font-family:'Pretendard',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-     display:flex;gap:10px;align-items:stretch;flex-wrap:wrap;">
-
-  <div style="flex:1;min-width:150px;background:#FAF8F1;border:1px solid #E7E1D5;
-       border-radius:12px;padding:14px 16px;">
-    <div style="display:inline-block;background:#C96442;color:#fff;font-weight:800;
-         font-size:12px;border-radius:999px;padding:2px 9px;margin-bottom:8px;">1단계</div>
-    <div style="font-weight:800;font-size:14px;color:#28251E;margin-bottom:4px;">넣기</div>
-    <div style="font-size:12.5px;color:#57534A;line-height:1.5;">
-      유튜브 주소를 넣습니다.<br>
-      자막이 없으면 강의 내용을<br>직접 붙여넣어도 됩니다.
+<div class="steps3">
+  <div class="s3">
+    <div class="no">1단계</div>
+    <div class="t">넣기</div>
+    <div class="d">유튜브 주소를 넣거나, 강의 녹음 파일을 올립니다.
+      자막이 없으면 내용을 직접 붙여넣어도 됩니다.</div>
+  </div>
+  <div class="s3">
+    <div class="no">2단계</div>
+    <div class="t">정리하기</div>
+    <div class="d">AI가 오타를 고치고 법령 용어를 바로잡아 정리합니다.</div>
+  </div>
+  <div class="s3 last">
+    <div class="no">3단계</div>
+    <div class="t">고른 것만 만들기</div>
+    <div class="tagrow">
+      <span>슬라이드</span><span>웹 학습지</span><span>블로그 글</span>
+      <span>한눈 요약</span><span>체계도</span><span>5지선다</span>
+      <span>O/X</span><span>학생 배포용</span><span>A4 체계도</span>
+      <span>인포그래픽</span><span>쇼츠 구성안</span>
     </div>
   </div>
-
-  <div style="display:flex;align-items:center;color:#C96442;font-size:20px;font-weight:900;">›</div>
-
-  <div style="flex:1;min-width:150px;background:#FAF8F1;border:1px solid #E7E1D5;
-       border-radius:12px;padding:14px 16px;">
-    <div style="display:inline-block;background:#C96442;color:#fff;font-weight:800;
-         font-size:12px;border-radius:999px;padding:2px 9px;margin-bottom:8px;">2단계</div>
-    <div style="font-weight:800;font-size:14px;color:#28251E;margin-bottom:4px;">정리하기</div>
-    <div style="font-size:12.5px;color:#57534A;line-height:1.5;">
-      버튼을 누르면 AI가<br>
-      오타를 고치고 법령 용어를<br>바로잡아 정리합니다.
-    </div>
-  </div>
-
-  <div style="display:flex;align-items:center;color:#C96442;font-size:20px;font-weight:900;">›</div>
-
-  <div style="flex:1.35;min-width:190px;background:#F5E4DA;border:1px solid #E0876A;
-       border-radius:12px;padding:14px 16px;">
-    <div style="display:inline-block;background:#AD4F30;color:#fff;font-weight:800;
-         font-size:12px;border-radius:999px;padding:2px 9px;margin-bottom:8px;">3단계</div>
-    <div style="font-weight:800;font-size:14px;color:#28251E;margin-bottom:6px;">7종이 한 번에</div>
-    <div style="font-size:12px;color:#57534A;line-height:1.85;">
-      <span style="background:#fff;border-radius:5px;padding:1px 6px;margin-right:3px;">슬라이드</span>
-      <span style="background:#fff;border-radius:5px;padding:1px 6px;margin-right:3px;">웹 학습지</span>
-      <span style="background:#fff;border-radius:5px;padding:1px 6px;margin-right:3px;">블로그 글</span>
-      <span style="background:#fff;border-radius:5px;padding:1px 6px;margin-right:3px;">한눈 요약</span>
-      <span style="background:#fff;border-radius:5px;padding:1px 6px;margin-right:3px;">체계도</span>
-      <span style="background:#fff;border-radius:5px;padding:1px 6px;margin-right:3px;">5지선다</span>
-      <span style="background:#fff;border-radius:5px;padding:1px 6px;">O/X</span>
-    </div>
-  </div>
-
 </div>
 """,
-        height=175,
+        unsafe_allow_html=True,
     )
 
     st.subheader("1단계 · 강의 원본 가져오기")
@@ -2843,31 +2877,22 @@ if st.session_state.stage == "review":
     max_calls = len(PICKS) - 1
 
     # 고른 것 / 안 고른 것을 눈으로 바로 구분되게 보여준다
-    def _chips(pairs, bg, fg, border):
+    def _chips(pairs, kind):
         return "".join(
-            f'<span style="display:inline-flex;align-items:center;gap:5px;'
-            f'background:{bg};color:{fg};border:1px solid {border};border-radius:999px;'
-            f'padding:5px 12px;margin:0 6px 6px 0;font-size:12.5px;font-weight:600;">'
-            f'{icon} {html_escape(label)}</span>'
+            f'<span class="chip {kind}">{icon} {html_escape(label)}</span>'
             for icon, label in pairs
-        ) or '<span style="color:#87878F;font-size:12.5px;">없음</span>'
+        ) or '<span class="none">없음</span>'
 
-    st.components.v1.html(
+    st.markdown(
         f"""
-<div style="font-family:'Inter','Pretendard',-apple-system,sans-serif;color:#050038;">
-  <div style="margin-bottom:12px;">
-    <div style="font-size:11.5px;font-weight:700;color:#1AAD5C;letter-spacing:.5px;
-         margin-bottom:7px;">✓ 만들 것 {calls}개</div>
-    <div>{_chips(picked, '#DCF7E5', '#0F7A40', '#A8E5C2')}</div>
-  </div>
-  <div>
-    <div style="font-size:11.5px;font-weight:700;color:#87878F;letter-spacing:.5px;
-         margin-bottom:7px;">— 안 만들 것 {len(skipped)}개 (나중에 추가 가능)</div>
-    <div>{_chips(skipped, '#F1F1EC', '#87878F', '#E0E0DA')}</div>
-  </div>
+<div class="pickbox">
+  <div class="lbl on">✓ 만들 것 {len(picked)}개</div>
+  <div class="row">{_chips(picked, 'yes')}</div>
+  <div class="lbl off">— 안 만들 것 {len(skipped)}개 (나중에 추가 가능)</div>
+  <div class="row">{_chips(skipped, 'no')}</div>
 </div>
 """,
-        height=150 + (len(picked) // 3 + len(skipped) // 3) * 14,
+        unsafe_allow_html=True,
     )
 
     if calls:
