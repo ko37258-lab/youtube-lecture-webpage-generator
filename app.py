@@ -2,6 +2,7 @@ import streamlit as st
 import re
 import io
 import os
+import time
 import json
 import base64
 import hashlib
@@ -12,7 +13,7 @@ from youtube_transcript_api import YouTubeTranscriptApi
 import google.generativeai as genai
 
 # Streamlit 페이지 설정
-st.set_page_config(page_title="유튜브 강의 콘텐츠 7종 자동 생성기",
+st.set_page_config(page_title="강의 콘텐츠 자동 생성기",
                    page_icon="🎥", layout="wide")
 
 # ============================================================
@@ -1019,6 +1020,66 @@ def generate_ox(model, transcript, count=10, avoid=None):
 }}
 ```"""
     return call_json(model, prompt)
+
+AUDIO_TYPES = ["mp3", "wav", "m4a", "aac", "ogg", "flac", "mp4", "mpeg", "mpga", "webm"]
+AUDIO_MIME = {
+    "mp3": "audio/mp3", "mpga": "audio/mpeg", "mpeg": "audio/mpeg",
+    "wav": "audio/wav", "m4a": "audio/m4a", "aac": "audio/aac",
+    "ogg": "audio/ogg", "flac": "audio/flac",
+    "mp4": "video/mp4", "webm": "video/webm",
+}
+
+def transcribe_audio(model, file_bytes, filename):
+    """오디오·영상 파일을 전사하면서 오타·법령 용어까지 한 번에 정리합니다.
+    전사와 정리를 한 호출로 합쳐 API 비용을 절반으로 줍니다."""
+    import tempfile
+
+    suffix = Path(filename).suffix.lower().lstrip(".")
+    mime = AUDIO_MIME.get(suffix, "audio/mpeg")
+
+    tmp_path = None
+    uploaded = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{suffix or 'mp3'}") as tmp:
+            tmp.write(file_bytes)
+            tmp_path = tmp.name
+
+        uploaded = genai.upload_file(path=tmp_path, mime_type=mime)
+
+        # 업로드 직후에는 아직 처리 중(PROCESSING)일 수 있어 준비될 때까지 기다린다.
+        waited = 0.0
+        while getattr(uploaded.state, "name", "") == "PROCESSING" and waited < 600:
+            time.sleep(3)
+            waited += 3
+            uploaded = genai.get_file(uploaded.name)
+        if getattr(uploaded.state, "name", "") == "FAILED":
+            raise RuntimeError("업로드한 파일을 처리하지 못했습니다. 다른 형식으로 저장해 다시 올려주세요.")
+
+        prompt = """이 오디오는 부동산 공법 강의입니다. 전체 내용을 한국어로 받아쓰세요.
+
+[작성 지침]
+1. 말한 내용을 빠뜨리지 말고 전부 옮기세요. 요약하지 마세요.
+2. 오탈자와 띄어쓰기를 바로잡고, 문맥에 맞게 문장을 자연스럽게 다듬으세요.
+3. 법령명·조문·용어가 구어체로 축약되면 공식 명칭으로 정리하세요.
+   (예: "국토계획법" → "국토의 계획 및 이용에 관한 법률")
+   확실하지 않으면 들린 그대로 두세요.
+4. "음", "어" 같은 추임새와 의미 없는 반복은 지우세요.
+5. 화자가 여러 명이면 문단을 나누세요.
+6. 설명이나 머리말 없이 정리된 본문만 출력하세요."""
+
+        response = model.generate_content([prompt, uploaded])
+        return response.text.strip()
+    finally:
+        if uploaded is not None:
+            try:
+                genai.delete_file(uploaded.name)
+            except Exception:
+                pass
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
 def generate_handout_data(model, transcript):
     """학생에게 그대로 배포할 수 있는 요약 학습자료 데이터를 만듭니다."""
@@ -2264,6 +2325,39 @@ if st.session_state.stage == "input":
                     st.warning(fetch_error or "자막을 자동으로 가져올 수 없습니다.")
 
     st.divider()
+    st.subheader("🎙 녹음 파일로 시작하기")
+    st.caption("강의 녹음(mp3·wav·m4a 등)을 올리면 AI가 받아쓰고 오타·법령 용어까지 한 번에 정리합니다. "
+               "유튜브 자막이 없는 강의도 이 방법으로 됩니다.")
+    audio_file = st.file_uploader(
+        "녹음 파일 올리기", type=AUDIO_TYPES, key="audio_upload",
+        help="mp3, wav, m4a, aac, ogg, flac, mp4, webm — 영상 파일도 소리만 뽑아 전사합니다.",
+    )
+    if audio_file is not None:
+        size_mb = len(audio_file.getvalue()) / (1024 * 1024)
+        st.caption(f"올린 파일: **{audio_file.name}** · {size_mb:.1f}MB")
+
+    if st.button("🎙 녹음 파일 전사하고 정리하기", type="primary", key="btn_audio"):
+        if not api_key:
+            st.error("사이드바에 Gemini API Key를 먼저 입력해주세요.")
+        elif audio_file is None:
+            st.error("녹음 파일을 먼저 올려주세요.")
+        else:
+            genai.configure(api_key=api_key)
+            with st.spinner("녹음을 받아쓰고 정리하는 중입니다. 길이에 따라 몇 분 걸릴 수 있습니다..."):
+                try:
+                    model = get_working_model()
+                    text = transcribe_audio(model, audio_file.getvalue(), audio_file.name)
+                    if not text:
+                        st.error("전사 결과가 비어 있습니다. 소리가 들어 있는 파일인지 확인해주세요.")
+                    else:
+                        st.session_state.raw_transcript = text
+                        st.session_state.transcript = text
+                        st.session_state.stage = "review"
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"전사 중 오류가 발생했습니다: {e}")
+
+    st.divider()
     st.caption("자막이 없거나 자동 추출이 안 되는 영상은 아래에 직접 붙여넣으세요.")
     manual_text = st.text_area("강의 전체 스크립트 직접 붙여넣기", height=220, key="manual_input")
 
@@ -2293,35 +2387,97 @@ if st.session_state.stage == "review":
                           height=380, key="cleaned_editor")
     copy_box("정리된 스크립트", edited, "cleaned")
 
-    col_a, col_b = st.columns([1, 1])
+    st.divider()
+    st.subheader("만들 것만 골라주세요")
+    st.caption("항목마다 AI를 한 번씩 부르기 때문에, 고른 개수만큼만 비용이 듭니다. "
+               "필요한 것만 고르면 그만큼 저렴합니다. 나중에 결과 화면에서 더 추가할 수도 있습니다.")
+
+    # (세션키, 화면이름, 설명, 기본선택) — 슬라이드와 학습지는 한 번의 호출을 함께 쓴다
+    PICKS = [
+        ("pick_data", "슬라이드 + 웹 학습지", "발표용 슬라이드와 웹 학습지 (한 번에 같이 만들어짐)", True),
+        ("pick_blog", "블로그 글", "네이버·티스토리에 바로 올릴 SEO 글", True),
+        ("pick_summary", "한눈 요약", "핵심 수치·비교표·절차를 한 화면에", True),
+        ("pick_mindmap", "체계도", "단원 구조를 계층으로 정리", True),
+        ("pick_mcq", "5지선다 문제", "정답·해설 포함 5문제", True),
+        ("pick_ox", "O/X 문제", "정답·해설 포함 10문제", True),
+        ("pick_handout", "학생 배포용 자료", "표·그래프·용어·점검표가 든 인쇄용 자료", False),
+        ("pick_onepager", "A4 한 장 체계도", "인쇄하면 딱 한 장으로 나오는 요약", False),
+    ]
+    for key, _, _, default in PICKS:
+        if key not in st.session_state:
+            st.session_state[key] = default
+
+    b1, b2, b3 = st.columns([1, 1, 2.2])
+    with b1:
+        if st.button("전부 선택", key="pick_all"):
+            for key, _, _, _ in PICKS:
+                st.session_state[key] = True
+            st.rerun()
+    with b2:
+        if st.button("전부 해제", key="pick_none"):
+            for key, _, _, _ in PICKS:
+                st.session_state[key] = False
+            st.rerun()
+
+    left, right = st.columns(2)
+    for i, (key, label, help_text, _) in enumerate(PICKS):
+        with (left if i % 2 == 0 else right):
+            st.checkbox(label, key=key, help=help_text)
+
+    chosen = [key for key, _, _, _ in PICKS if st.session_state.get(key)]
+    calls = len(chosen)
+    if calls:
+        st.info(f"고른 항목 **{calls}개** · AI 호출 **{calls}번**  \n"
+                f"전부(8개) 고를 때보다 약 **{round((1 - calls / len(PICKS)) * 100)}%** 적게 듭니다.")
+    else:
+        st.warning("적어도 하나는 골라주세요.")
+
+    col_a, col_b = st.columns([1.4, 1])
     with col_a:
-        if st.button("🚀 이 내용으로 콘텐츠 7종 생성하기", type="primary"):
+        if st.button(f"🚀 고른 {calls}개 만들기", type="primary", disabled=(calls == 0)):
             st.session_state.transcript = edited
             genai.configure(api_key=api_key)
             transcript = edited
-            results = {"transcript": transcript, "saved_at": datetime.now().isoformat(timespec="seconds")}
+            results = {"transcript": transcript,
+                       "saved_at": datetime.now().isoformat(timespec="seconds"),
+                       "title": "강의 자료", "speaker": "고상철"}
             progress = st.progress(0.0, text="생성 준비 중...")
+            done = [0]
+
+            def step(label):
+                done[0] += 1
+                progress.progress(done[0] / calls, text=f"{done[0]}/{calls} {label}")
+
             try:
                 model = get_working_model()
 
-                progress.progress(0.15, text="1/5 강의 구조를 분석하는 중...")
-                data = generate_structured_data(model, transcript)
-                title = data.get("title", "강의 자료")
-                speaker = data.get("speaker", "고상철")
-                results.update({"title": title, "speaker": speaker, "data": data})
-
-                progress.progress(0.35, text="2/5 블로그 글을 작성하는 중...")
-                results["blog"] = generate_blog_post(model, transcript)
-
-                progress.progress(0.55, text="3/5 요약 대시보드를 만드는 중...")
-                results["summary"] = generate_summary_data(model, transcript)
-
-                progress.progress(0.70, text="4/5 체계도를 만드는 중...")
-                results["mindmap"] = generate_mindmap_data(model, transcript)
-
-                progress.progress(0.85, text="5/5 문제를 출제하는 중...")
-                results["mcq"] = generate_mcq(model, transcript, count=5).get("questions", [])
-                results["ox"] = generate_ox(model, transcript, count=10).get("questions", [])
+                if st.session_state.pick_data:
+                    step("슬라이드·학습지를 만드는 중...")
+                    data = generate_structured_data(model, transcript)
+                    results.update({"title": data.get("title", "강의 자료"),
+                                    "speaker": data.get("speaker", "고상철"),
+                                    "data": data})
+                if st.session_state.pick_blog:
+                    step("블로그 글을 작성하는 중...")
+                    results["blog"] = generate_blog_post(model, transcript)
+                if st.session_state.pick_summary:
+                    step("한눈 요약을 만드는 중...")
+                    results["summary"] = generate_summary_data(model, transcript)
+                if st.session_state.pick_mindmap:
+                    step("체계도를 만드는 중...")
+                    results["mindmap"] = generate_mindmap_data(model, transcript)
+                if st.session_state.pick_mcq:
+                    step("5지선다 문제를 출제하는 중...")
+                    results["mcq"] = generate_mcq(model, transcript, count=5).get("questions", [])
+                if st.session_state.pick_ox:
+                    step("O/X 문제를 출제하는 중...")
+                    results["ox"] = generate_ox(model, transcript, count=10).get("questions", [])
+                if st.session_state.pick_handout:
+                    step("학생 배포용 자료를 만드는 중...")
+                    results["handout"] = generate_handout_data(model, transcript)
+                if st.session_state.pick_onepager:
+                    step("A4 체계도를 만드는 중...")
+                    results["onepager"] = generate_onepager_data(model, transcript)
 
                 progress.progress(1.0, text="완료!")
                 project_id = make_project_id(transcript)
@@ -2365,120 +2521,155 @@ if st.session_state.stage == "done" and st.session_state.results:
         "📐 9. A4 체계도",
     ])
 
+    def ensure_part(result_key, label, generator, btn_key):
+        """이 항목을 안 골랐으면 지금 만들 수 있게 버튼을 보여줍니다.
+        이미 있으면 True를 돌려줘 결과를 그리게 합니다."""
+        if r.get(result_key):
+            return True
+        st.info(f"‘{label}’은 아직 만들지 않았습니다. 지금 만들면 AI 호출 1번이 듭니다.")
+        if st.button(f"✨ {label} 지금 만들기", key=btn_key, type="primary"):
+            if not api_key:
+                st.error("사이드바에 Gemini API Key를 먼저 입력해주세요.")
+            else:
+                genai.configure(api_key=api_key)
+                with st.spinner(f"{label}을 만드는 중입니다..."):
+                    try:
+                        model = get_working_model()
+                        r[result_key] = generator(model, r["transcript"])
+                        if result_key == "data":
+                            r["title"] = r["data"].get("title", r.get("title", "강의 자료"))
+                            r["speaker"] = r["data"].get("speaker", r.get("speaker", "고상철"))
+                        save_project(st.session_state.project_id, r)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"생성 실패: {e}")
+        return False
+
     with tabs[0]:
         st.text_area("정리된 스크립트", value=r.get("transcript", ""), height=400, key="view_transcript")
         copy_box("원고", r.get("transcript", ""), "res_transcript")
 
     with tabs[1]:
-        html = generate_slides_html(r["data"])
-        st.download_button("📥 슬라이드 HTML 다운로드", data=html,
-                           file_name="slides.html", mime="text/html", key="dl_slides")
-        st.components.v1.html(html, height=620, scrolling=True)
+        if ensure_part("data", "슬라이드 + 웹 학습지", generate_structured_data, "gen_data_slides"):
+            html = generate_slides_html(r["data"])
+            st.download_button("📥 슬라이드 HTML 다운로드", data=html,
+                               file_name="slides.html", mime="text/html", key="dl_slides")
+            st.components.v1.html(html, height=620, scrolling=True)
 
     with tabs[2]:
-        html = generate_study_html(r["data"])
-        st.download_button("📥 학습지 HTML 다운로드", data=html,
-                           file_name="study_guide.html", mime="text/html", key="dl_study")
-        st.components.v1.html(html, height=620, scrolling=True)
+        if ensure_part("data", "슬라이드 + 웹 학습지", generate_structured_data, "gen_data_study"):
+            html = generate_study_html(r["data"])
+            st.download_button("📥 학습지 HTML 다운로드", data=html,
+                               file_name="study_guide.html", mime="text/html", key="dl_study")
+            st.components.v1.html(html, height=620, scrolling=True)
 
     with tabs[3]:
-        blog = r.get("blog", {})
-        st.markdown(f"**제목:** {blog.get('title','')}")
-        st.markdown(f"**메타 설명:** {blog.get('meta_description','')}")
-        st.markdown(f"**키워드:** {', '.join(blog.get('keywords', []) or [])}")
-        st.divider()
-        body = blog.get("markdown", "")
-        rich = markdown_to_rich_html(body)
+      if ensure_part("blog", "블로그 글", generate_blog_post, "gen_blog"):
+          blog = r.get("blog", {})
+          st.markdown(f"**제목:** {blog.get('title','')}")
+          st.markdown(f"**메타 설명:** {blog.get('meta_description','')}")
+          st.markdown(f"**키워드:** {', '.join(blog.get('keywords', []) or [])}")
+          st.divider()
+          body = blog.get("markdown", "")
+          rich = markdown_to_rich_html(body)
 
-        st.markdown("**블로그에 바로 붙여넣기** — 아래 초록 버튼을 누르고 네이버 블로그·티스토리 편집기에 그대로 붙여넣으세요. 제목·굵게·표 서식이 그대로 유지됩니다.")
-        copy_rich_box("블로그 본문", rich, "res_blog_rich")
+          st.markdown("**블로그에 바로 붙여넣기** — 아래 초록 버튼을 누르고 네이버 블로그·티스토리 편집기에 그대로 붙여넣으세요. 제목·굵게·표 서식이 그대로 유지됩니다.")
+          copy_rich_box("블로그 본문", rich, "res_blog_rich")
 
-        with st.expander("다른 형식으로 복사·저장하기"):
-            copy_box("마크다운 원문", body, "res_blog_md")
-            st.download_button("📥 마크다운(.md) 다운로드", data=body,
-                               file_name="blog_post.md", mime="text/markdown", key="dl_blog_md")
-            st.download_button("📥 HTML 다운로드", data=rich,
-                               file_name="blog_post.html", mime="text/html", key="dl_blog_html")
+          with st.expander("다른 형식으로 복사·저장하기"):
+              copy_box("마크다운 원문", body, "res_blog_md")
+              st.download_button("📥 마크다운(.md) 다운로드", data=body,
+                                 file_name="blog_post.md", mime="text/markdown", key="dl_blog_md")
+              st.download_button("📥 HTML 다운로드", data=rich,
+                                 file_name="blog_post.html", mime="text/html", key="dl_blog_html")
 
-        st.divider()
-        st.caption("미리보기")
-        st.markdown(body)
+          st.divider()
+          st.caption("미리보기")
+          st.markdown(body)
 
     with tabs[4]:
-        html = generate_summary_html(r.get("summary", {}), title, speaker)
-        c1, c2 = st.columns(2)
-        with c1:
-            st.download_button("📥 HTML 다운로드", data=html,
-                               file_name="summary.html", mime="text/html", key="dl_sum_html")
-        with c2:
-            try:
-                st.download_button("📥 PDF 다운로드",
-                                   data=summary_pdf_bytes(r.get("summary", {}), title, speaker),
-                                   file_name="summary.pdf", mime="application/pdf", key="dl_sum_pdf")
-            except Exception as e:
-                st.caption(f"PDF 변환 실패: {e}")
-        st.components.v1.html(html, height=620, scrolling=True)
+      if ensure_part("summary", "한눈 요약", generate_summary_data, "gen_summary"):
+          html = generate_summary_html(r.get("summary", {}), title, speaker)
+          c1, c2 = st.columns(2)
+          with c1:
+              st.download_button("📥 HTML 다운로드", data=html,
+                                 file_name="summary.html", mime="text/html", key="dl_sum_html")
+          with c2:
+              try:
+                  st.download_button("📥 PDF 다운로드",
+                                     data=summary_pdf_bytes(r.get("summary", {}), title, speaker),
+                                     file_name="summary.pdf", mime="application/pdf", key="dl_sum_pdf")
+              except Exception as e:
+                  st.caption(f"PDF 변환 실패: {e}")
+          st.components.v1.html(html, height=620, scrolling=True)
 
     with tabs[5]:
-        html = generate_mindmap_html(r.get("mindmap", {}), speaker)
-        c1, c2 = st.columns(2)
-        with c1:
-            st.download_button("📥 HTML 다운로드", data=html,
-                               file_name="mindmap.html", mime="text/html", key="dl_map_html")
-        with c2:
-            try:
-                st.download_button("📥 PDF 다운로드",
-                                   data=mindmap_pdf_bytes(r.get("mindmap", {}), speaker),
-                                   file_name="mindmap.pdf", mime="application/pdf", key="dl_map_pdf")
-            except Exception as e:
-                st.caption(f"PDF 변환 실패: {e}")
-        st.components.v1.html(html, height=760, scrolling=True)
+      if ensure_part("mindmap", "체계도", generate_mindmap_data, "gen_mindmap"):
+          html = generate_mindmap_html(r.get("mindmap", {}), speaker)
+          c1, c2 = st.columns(2)
+          with c1:
+              st.download_button("📥 HTML 다운로드", data=html,
+                                 file_name="mindmap.html", mime="text/html", key="dl_map_html")
+          with c2:
+              try:
+                  st.download_button("📥 PDF 다운로드",
+                                     data=mindmap_pdf_bytes(r.get("mindmap", {}), speaker),
+                                     file_name="mindmap.pdf", mime="application/pdf", key="dl_map_pdf")
+              except Exception as e:
+                  st.caption(f"PDF 변환 실패: {e}")
+          st.components.v1.html(html, height=760, scrolling=True)
 
     with tabs[6]:
-        mcq = r.get("mcq", [])
-        if st.button("➕ 5문제 추가 생성", key="more_mcq"):
-            genai.configure(api_key=api_key)
-            with st.spinner("문제를 추가로 출제하는 중..."):
-                try:
-                    model = get_working_model()
-                    more = generate_mcq(model, r["transcript"], count=5,
-                                        avoid=[q.get("question", "") for q in mcq])
-                    r["mcq"] = mcq + more.get("questions", [])
-                    save_project(st.session_state.project_id, r)
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"추가 생성 실패: {e}")
-        html = generate_mcq_html(r.get("mcq", []), title, speaker)
-        copy_rich_box("문제 전체", mcq_to_rich_html(r.get("mcq", []), title), "res_mcq_rich")
-        st.caption("한글(HWP)·블로그에 붙여넣으면 문제·정답·해설 서식이 그대로 유지됩니다.")
-        with st.expander("일반 텍스트로 복사·저장하기"):
-            copy_box("문제 전체(일반 텍스트)", mcq_to_text(r.get("mcq", []), title), "res_mcq")
-            st.download_button("📥 HTML 다운로드", data=html,
-                               file_name="mcq.html", mime="text/html", key="dl_mcq")
-        st.components.v1.html(html, height=620, scrolling=True)
+      if ensure_part("mcq", "5지선다 문제",
+                     lambda m, t: generate_mcq(m, t, count=5).get("questions", []),
+                     "gen_mcq"):
+          mcq = r.get("mcq", [])
+          if st.button("➕ 5문제 추가 생성", key="more_mcq"):
+              genai.configure(api_key=api_key)
+              with st.spinner("문제를 추가로 출제하는 중..."):
+                  try:
+                      model = get_working_model()
+                      more = generate_mcq(model, r["transcript"], count=5,
+                                          avoid=[q.get("question", "") for q in mcq])
+                      r["mcq"] = mcq + more.get("questions", [])
+                      save_project(st.session_state.project_id, r)
+                      st.rerun()
+                  except Exception as e:
+                      st.error(f"추가 생성 실패: {e}")
+          html = generate_mcq_html(r.get("mcq", []), title, speaker)
+          copy_rich_box("문제 전체", mcq_to_rich_html(r.get("mcq", []), title), "res_mcq_rich")
+          st.caption("한글(HWP)·블로그에 붙여넣으면 문제·정답·해설 서식이 그대로 유지됩니다.")
+          with st.expander("일반 텍스트로 복사·저장하기"):
+              copy_box("문제 전체(일반 텍스트)", mcq_to_text(r.get("mcq", []), title), "res_mcq")
+              st.download_button("📥 HTML 다운로드", data=html,
+                                 file_name="mcq.html", mime="text/html", key="dl_mcq")
+          st.components.v1.html(html, height=620, scrolling=True)
 
     with tabs[7]:
-        ox = r.get("ox", [])
-        if st.button("➕ 10문제 추가 생성", key="more_ox"):
-            genai.configure(api_key=api_key)
-            with st.spinner("문제를 추가로 출제하는 중..."):
-                try:
-                    model = get_working_model()
-                    more = generate_ox(model, r["transcript"], count=10,
-                                       avoid=[q.get("question", "") for q in ox])
-                    r["ox"] = ox + more.get("questions", [])
-                    save_project(st.session_state.project_id, r)
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"추가 생성 실패: {e}")
-        html = generate_ox_html(r.get("ox", []), title, speaker)
-        copy_rich_box("문제 전체", ox_to_rich_html(r.get("ox", []), title), "res_ox_rich")
-        st.caption("한글(HWP)·블로그에 붙여넣으면 문제·정답·해설 서식이 그대로 유지됩니다.")
-        with st.expander("일반 텍스트로 복사·저장하기"):
-            copy_box("문제 전체(일반 텍스트)", ox_to_text(r.get("ox", []), title), "res_ox")
-            st.download_button("📥 HTML 다운로드", data=html,
-                               file_name="ox.html", mime="text/html", key="dl_ox")
-        st.components.v1.html(html, height=620, scrolling=True)
+      if ensure_part("ox", "O/X 문제",
+                     lambda m, t: generate_ox(m, t, count=10).get("questions", []),
+                     "gen_ox"):
+          ox = r.get("ox", [])
+          if st.button("➕ 10문제 추가 생성", key="more_ox"):
+              genai.configure(api_key=api_key)
+              with st.spinner("문제를 추가로 출제하는 중..."):
+                  try:
+                      model = get_working_model()
+                      more = generate_ox(model, r["transcript"], count=10,
+                                         avoid=[q.get("question", "") for q in ox])
+                      r["ox"] = ox + more.get("questions", [])
+                      save_project(st.session_state.project_id, r)
+                      st.rerun()
+                  except Exception as e:
+                      st.error(f"추가 생성 실패: {e}")
+          html = generate_ox_html(r.get("ox", []), title, speaker)
+          copy_rich_box("문제 전체", ox_to_rich_html(r.get("ox", []), title), "res_ox_rich")
+          st.caption("한글(HWP)·블로그에 붙여넣으면 문제·정답·해설 서식이 그대로 유지됩니다.")
+          with st.expander("일반 텍스트로 복사·저장하기"):
+              copy_box("문제 전체(일반 텍스트)", ox_to_text(r.get("ox", []), title), "res_ox")
+              st.download_button("📥 HTML 다운로드", data=html,
+                                 file_name="ox.html", mime="text/html", key="dl_ox")
+          st.components.v1.html(html, height=620, scrolling=True)
 
     # --- 8. 학생 배포용 요약 학습자료 (선택 생성) ---
     with tabs[8]:
