@@ -171,36 +171,90 @@ iframe{border-radius:8px;background:#fff;}
 
 st.title("🎥 유튜브 강의 콘텐츠 자동 생성기")
 
-ARCHIVE_DIR = Path("archive")
-ARCHIVE_DIR.mkdir(exist_ok=True)
+LOCAL_ARCHIVE = Path("archive")
+LOCAL_ARCHIVE.mkdir(exist_ok=True)
+DRIVE_SUBFOLDER = "강의콘텐츠생성기"
 
-def archive_path(project_id):
-    return ARCHIVE_DIR / f"{project_id}.json"
+def find_drive_folder():
+    """구글 드라이브 데스크톱 앱이 만든 동기화 폴더를 찾습니다.
+    찾으면 그 안에 저장해 드라이브로 자동 업로드되게 합니다."""
+    home = Path.home()
+    candidates = [home / "My Drive", home / "Google Drive", home / "내 드라이브"]
+    # 드라이브를 별도 드라이브 문자로 마운트한 경우(G:, H: 등)까지 훑는다
+    for letter in "GHIJKLMNOPQRSTUVWXYZ":
+        root = Path(f"{letter}:/")
+        candidates += [root / "My Drive", root / "내 드라이브"]
+    for path in candidates:
+        try:
+            if path.is_dir():
+                return path
+        except OSError:
+            continue
+    return None
+
+@st.cache_data(ttl=60, show_spinner=False)
+def drive_status():
+    """(사용중여부, 저장경로) — 60초간 캐시해 매번 디스크를 훑지 않습니다."""
+    if is_shared_host():
+        return False, None
+    base = find_drive_folder()
+    if not base:
+        return False, None
+    target = base / DRIVE_SUBFOLDER
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+        return True, target
+    except OSError:
+        return False, None
+
+def archive_dirs():
+    """저장을 읽을 폴더 목록. 드라이브가 있으면 드라이브를 우선합니다."""
+    using, drive = drive_status()
+    return [drive, LOCAL_ARCHIVE] if using else [LOCAL_ARCHIVE]
 
 def save_project(project_id, payload):
-    archive_path(project_id).write_text(
-        json.dumps(payload, ensure_ascii=False), encoding="utf-8"
-    )
+    """결과를 저장합니다. 드라이브 폴더가 있으면 거기에도 함께 씁니다."""
+    text = json.dumps(payload, ensure_ascii=False)
+    written = []
+    for folder in archive_dirs():
+        try:
+            (folder / f"{project_id}.json").write_text(text, encoding="utf-8")
+            written.append(folder)
+        except OSError:
+            continue
+    return written
 
 def load_project(project_id):
-    path = archive_path(project_id)
-    if not path.exists():
-        return None
-    return json.loads(path.read_text(encoding="utf-8"))
+    for folder in archive_dirs():
+        path = folder / f"{project_id}.json"
+        try:
+            if path.exists():
+                return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+    return None
 
 def list_projects():
-    items = []
-    for path in ARCHIVE_DIR.glob("*.json"):
+    """저장된 결과 목록. 드라이브와 로컬을 합치고 같은 id는 한 번만 보여줍니다."""
+    seen = {}
+    for folder in archive_dirs():
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            items.append({
+            paths = sorted(folder.glob("*.json"))
+        except OSError:
+            continue
+        for path in paths:
+            if path.stem in seen:
+                continue
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            seen[path.stem] = {
                 "id": path.stem,
                 "title": data.get("title", "제목 없음"),
                 "saved_at": data.get("saved_at", ""),
-            })
-        except Exception:
-            continue
-    return sorted(items, key=lambda x: x["saved_at"], reverse=True)
+            }
+    return sorted(seen.values(), key=lambda x: x["saved_at"], reverse=True)
 
 def make_project_id(transcript):
     digest = hashlib.sha1(transcript.encode("utf-8")).hexdigest()[:10]
@@ -2105,7 +2159,28 @@ if projects:
                 st.rerun()
 else:
     st.sidebar.caption("아직 저장된 결과가 없습니다.")
-st.sidebar.caption("⚠️ 온라인(Streamlit Cloud) 저장분은 앱이 재시작되면 사라질 수 있으니, 중요한 결과는 다운로드해 두세요.")
+
+_drive_on, _drive_path = drive_status()
+if _drive_on:
+    st.sidebar.success(f"☁️ 구글 드라이브에 자동 저장 중\n\n`{_drive_path.name}` 폴더")
+    st.sidebar.caption("다른 컴퓨터에서도 드라이브만 연결돼 있으면 이 목록이 그대로 보입니다.")
+elif is_shared_host():
+    st.sidebar.caption("⚠️ 온라인(웹 주소)에서는 저장분이 앱 재시작 시 사라집니다. "
+                       "중요한 결과는 다운로드해 두세요.")
+else:
+    with st.sidebar.expander("☁️ 드라이브에 자동 저장하기"):
+        st.markdown(
+            """
+결과를 여러 컴퓨터에서 함께 보려면 **구글 드라이브 데스크톱 앱**을 설치하세요.
+설치하면 이 앱이 알아서 찾아 드라이브에 저장합니다. 별도 설정은 없습니다.
+
+👉 [구글 드라이브 데스크톱 내려받기](https://www.google.com/drive/download/)
+
+설치 후 로그인하고 이 앱을 다시 켜면, 위에 `자동 저장 중`으로 바뀝니다.
+그때부터 결과가 `내 드라이브 / 강의콘텐츠생성기` 폴더에 쌓입니다.
+            """
+        )
+    st.sidebar.caption("지금은 이 컴퓨터에만 저장됩니다.")
 
 # --- 1단계: 입력 ---
 if st.session_state.stage == "input":
