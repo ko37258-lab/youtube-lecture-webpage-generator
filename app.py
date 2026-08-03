@@ -7,12 +7,169 @@ import base64
 import hashlib
 from datetime import datetime
 from pathlib import Path
+from html import escape as html_escape
 from youtube_transcript_api import YouTubeTranscriptApi
 import google.generativeai as genai
 
 # Streamlit 페이지 설정
-st.set_page_config(page_title="유튜브 강의 콘텐츠 7종 자동 생성기", layout="wide")
-st.title("🎥 유튜브 강의 콘텐츠 7종 자동 생성기")
+st.set_page_config(page_title="유튜브 강의 콘텐츠 7종 자동 생성기",
+                   page_icon="🎥", layout="wide")
+
+# ============================================================
+# Miro 스타일 테마
+# 토큰 출처: miro.com/brand — Miro Yellow #FFD02F, Indigo #4262FF,
+# warm beige 캔버스 + 도트 그리드, 스티키 노트(라운드 2px)
+# ============================================================
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css');
+
+:root{
+  --miro-yellow:#FFD02F; --miro-yellow-600:#E6BB1E; --miro-yellow-700:#B8941A;
+  --miro-yellow-50:#FFF9E0; --miro-yellow-100:#FFF1B5; --miro-yellow-200:#FFE883;
+  --miro-indigo:#4262FF; --miro-navy:#050038;
+  --sticky-coral:#FF6F61; --sticky-cyan:#A0E7E5; --sticky-purple:#B4A0FF;
+  --miro-canvas:#F5F5F0; --miro-dot:#D0D0C8;
+  --miro-fg:#050038; --miro-fg2:#5A5A66; --miro-fg3:#87878F;
+  --miro-line:#E0E0E0; --miro-line-soft:#ECECE4;
+  --sh-sticky:2px 3px 0 rgba(5,0,56,.06);
+  --sh-sm:0 1px 3px rgba(5,0,56,.06);
+  --sh-md:0 4px 12px rgba(5,0,56,.10);
+}
+
+/* 무한 캔버스 — 도트 그리드 베이지 (Miro 시그니처) */
+.stApp{
+  background-color:var(--miro-canvas);
+  background-image:radial-gradient(var(--miro-dot) 1px, transparent 1px);
+  background-size:18px 18px;
+}
+html, body, .stApp, [class*="css"]{
+  font-family:'Inter','Pretendard',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  color:var(--miro-fg);
+}
+
+/* 본문을 흰 보드 위에 올린다 */
+.stMain .block-container{
+  background:rgba(255,255,255,.86);
+  border:1px solid var(--miro-line);
+  border-radius:8px;
+  box-shadow:var(--sh-sm);
+  padding:30px 34px 46px;
+  max-width:1180px;
+}
+
+/* 타이포 위계 */
+h1,h2,h3{color:var(--miro-fg);letter-spacing:-.02em;}
+h1{font-size:38px!important;font-weight:800!important;line-height:1.08!important;
+   letter-spacing:-.035em!important;}
+h2{font-size:26px!important;font-weight:700!important;}
+h3{font-size:19px!important;font-weight:600!important;}
+
+/* 상단 보드바 */
+.stMain .block-container > div:first-child h1{
+  display:flex;align-items:center;gap:12px;
+  padding-bottom:16px;margin-bottom:4px;
+  border-bottom:1px solid var(--miro-line-soft);
+}
+
+/* 버튼 — 기본은 흰 카드, primary는 Miro Yellow */
+.stButton > button{
+  font-family:inherit;font-weight:600;font-size:14px;
+  border-radius:6px;min-height:38px;padding:0 15px;
+  background:#fff;color:var(--miro-fg);border:1px solid var(--miro-line);
+  box-shadow:none;transition:background 100ms ease, transform 100ms ease;
+}
+.stButton > button:hover{background:var(--miro-canvas);border-color:var(--miro-fg3);}
+.stButton > button[kind="primary"],
+.stButton > button[data-testid="baseButton-primary"]{
+  background:var(--miro-yellow);color:var(--miro-navy);border:0;font-weight:700;
+}
+.stButton > button[kind="primary"]:hover,
+.stButton > button[data-testid="baseButton-primary"]:hover{
+  background:var(--miro-yellow-600);transform:translateY(-1px);
+}
+
+/* 다운로드 버튼 — 캔버스 밖 액션이므로 Indigo */
+.stDownloadButton > button{
+  font-family:inherit;font-weight:700;font-size:13.5px;
+  border-radius:6px;min-height:36px;padding:0 14px;
+  background:var(--miro-indigo);color:#fff;border:0;
+}
+.stDownloadButton > button:hover{background:#2F4FE8;color:#fff;}
+
+/* 입력 필드 */
+.stTextInput input, .stTextArea textarea, .stSelectbox div[data-baseweb="select"] > div{
+  background:#fff!important;border:1px solid var(--miro-line)!important;
+  border-radius:6px!important;color:var(--miro-fg)!important;font-family:inherit!important;
+}
+.stTextInput input:focus, .stTextArea textarea:focus{
+  border-color:var(--miro-indigo)!important;
+  box-shadow:0 0 0 2px rgba(66,98,255,.20)!important;
+}
+
+/* 탭 — 도구바처럼 */
+.stTabs [data-baseweb="tab-list"]{
+  gap:4px;background:#fff;padding:6px;border-radius:10px;
+  border:1px solid var(--miro-line);box-shadow:var(--sh-sm);flex-wrap:wrap;
+}
+.stTabs [data-baseweb="tab"]{
+  height:auto;padding:9px 14px;border-radius:6px;background:transparent;
+  font-size:13.5px;font-weight:600;color:var(--miro-fg2);
+}
+.stTabs [data-baseweb="tab"]:hover{background:var(--miro-canvas);color:var(--miro-fg);}
+.stTabs [aria-selected="true"]{
+  background:var(--miro-yellow)!important;color:var(--miro-navy)!important;font-weight:700!important;
+}
+.stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"]{display:none;}
+
+/* 알림 — 스티키 노트 (라운드 2px이 시그니처) */
+div[data-testid="stAlert"]{
+  border-radius:2px;border:0;box-shadow:var(--sh-sticky);
+  font-size:13.5px;font-weight:500;color:var(--miro-navy);
+}
+div[data-testid="stAlertContentSuccess"]{background:#DCF7E5;}
+div[data-testid="stAlertContentInfo"]{background:var(--sticky-cyan);}
+div[data-testid="stAlertContentWarning"]{background:var(--miro-yellow-200);}
+div[data-testid="stAlertContentError"]{background:#FFC9C4;}
+
+/* 사이드바 — 왼쪽 도구 패널 */
+section[data-testid="stSidebar"]{
+  background:#fff;border-right:1px solid var(--miro-line);
+}
+section[data-testid="stSidebar"] .block-container{padding-top:24px;}
+section[data-testid="stSidebar"] h3{font-size:15px!important;font-weight:700!important;}
+
+/* 진행 바 */
+.stProgress > div > div > div > div{background:var(--miro-indigo);}
+.stProgress > div > div > div{background:var(--miro-line-soft);border-radius:9999px;}
+
+/* 확장 패널 */
+details, div[data-testid="stExpander"]{
+  background:#fff;border:1px solid var(--miro-line)!important;
+  border-radius:8px!important;box-shadow:none;
+}
+div[data-testid="stExpander"] summary{font-weight:600;font-size:13.5px;}
+
+/* 캡션 */
+div[data-testid="stCaptionContainer"], .stCaption{
+  color:var(--miro-fg3)!important;font-size:12px!important;
+}
+
+/* 구분선 */
+hr{border-color:var(--miro-line-soft);}
+
+/* 임베드된 결과물 미리보기 */
+iframe{border-radius:8px;background:#fff;}
+
+@media (max-width:820px){
+  .stMain .block-container{padding:20px 16px 32px;border-radius:6px;}
+  h1{font-size:28px!important;}
+}
+</style>
+""", unsafe_allow_html=True)
+
+st.title("🎥 유튜브 강의 콘텐츠 자동 생성기")
 
 ARCHIVE_DIR = Path("archive")
 ARCHIVE_DIR.mkdir(exist_ok=True)
@@ -131,6 +288,88 @@ def mindmap_pdf_bytes(md, speaker):
             body += "</ul>"
     return build_pdf_bytes(body, title)
 
+def handout_pdf_bytes(hd, speaker):
+    """학생 배포용 자료를 PDF로 만듭니다(인쇄 배포용)."""
+    title = hd.get("title", "요약 학습자료")
+    body = (f"<h1>{title}</h1>"
+            f"<p class='lead'>{hd.get('subtitle','')} · {speaker} 강의 요약</p>")
+    if hd.get("intro"):
+        body += f"<p>{hd['intro']}</p>"
+
+    for idx, sec in enumerate(hd.get("sections") or [], 1):
+        no = sec.get("no") or f"{idx:02d}"
+        body += f"<h2>{no}. {sec.get('heading','')}</h2>"
+        if sec.get("summary"):
+            body += f"<p>{sec['summary']}</p>"
+        if sec.get("key_points"):
+            body += "<ul>" + "".join(f"<li>{p}</li>" for p in sec["key_points"]) + "</ul>"
+
+        table = sec.get("table") or {}
+        if table.get("headers") and table.get("rows"):
+            if table.get("caption"):
+                body += f"<h3>{table['caption']}</h3>"
+            body += "<table><tr>" + "".join(f"<th>{h}</th>" for h in table["headers"]) + "</tr>"
+            for row in table["rows"]:
+                body += "<tr>" + "".join(f"<td>{c}</td>" for c in row) + "</tr>"
+            body += "</table>"
+
+        chart = sec.get("chart") or {}
+        items = [it for it in (chart.get("items") or [])
+                 if isinstance(it.get("value"), (int, float))]
+        if items:
+            unit = chart.get("unit", "")
+            body += f"<h3>{chart.get('caption','수치 비교')}</h3><ul>"
+            body += "".join(f"<li>{it.get('name','')} — <b>{it['value']:g}{unit}</b></li>"
+                            for it in items)
+            body += "</ul>"
+
+        co = sec.get("callout") or {}
+        if co.get("text"):
+            label = CALLOUT_STYLE.get(co.get("kind", "tip"), CALLOUT_STYLE["tip"])[0]
+            body += f"<div class='box'><b>{co.get('title') or label}</b> — {co['text']}</div>"
+
+    flow = hd.get("flow") or {}
+    if flow.get("steps"):
+        body += f"<h2>{flow.get('caption','절차 흐름')}</h2><ul>"
+        body += "".join(f"<li>{i}. {s}</li>" for i, s in enumerate(flow["steps"], 1))
+        body += "</ul>"
+
+    if hd.get("terms"):
+        body += "<h2>꼭 알아야 할 용어</h2><ul>"
+        body += "".join(f"<li><b>{t.get('term','')}</b> — {t.get('meaning','')}</li>"
+                        for t in hd["terms"])
+        body += "</ul>"
+
+    if hd.get("checklist"):
+        body += "<h2>시험 직전 최종 점검</h2><ul>"
+        body += "".join(f"<li>☐ {c}</li>" for c in hd["checklist"])
+        body += "</ul>"
+
+    return build_pdf_bytes(body, title)
+
+def onepager_pdf_bytes(od, speaker):
+    """A4 한 장 체계도를 PDF로 만듭니다."""
+    title = od.get("title", "핵심 체계도")
+    body = (f"<h1>{title}</h1>"
+            f"<p class='lead'>핵심: {od.get('center','')} · {speaker} 강의 한 장 요약</p>")
+
+    nums = od.get("key_numbers") or []
+    if nums:
+        body += "<table><tr>"
+        body += "".join(f"<th>{n.get('label','')}</th>" for n in nums)
+        body += "</tr><tr>"
+        body += "".join(f"<td><b>{n.get('value','')}</b></td>" for n in nums)
+        body += "</tr></table>"
+
+    for i, b in enumerate(od.get("branches") or [], 1):
+        body += f"<h2>{b.get('no') or i}. {b.get('heading','')}</h2><ul>"
+        body += "".join(f"<li>{it}</li>" for it in b.get("items") or [])
+        body += "</ul>"
+
+    if od.get("footer_note"):
+        body += f"<div class='box'><b>꼭 기억하세요</b> — {od['footer_note']}</div>"
+    return build_pdf_bytes(body, title)
+
 def markdown_to_rich_html(md_text):
     """마크다운을 블로그 편집기에 붙여넣을 수 있는 서식 HTML로 변환합니다.
     외부 CSS가 따라가지 않으므로 표·인용 등에 인라인 스타일을 직접 넣습니다."""
@@ -244,35 +483,74 @@ def copy_box(label, text, key):
 # 공용 서버(Streamlit Cloud)는 다른 사람도 접속하므로 저장하지 않는다.
 # ============================================================
 API_KEY_FILE = Path.home() / ".youtube_lecture_generator" / "api_key.txt"
+API_KEY_COOKIE = "ylg_gemini_key"
 
 def is_shared_host():
     """여러 사람이 접속하는 공용 서버에서 실행 중인지 판단합니다."""
     return os.path.exists("/mount/src") or bool(os.environ.get("STREAMLIT_SHARING_MODE"))
 
-def load_saved_api_key():
-    if is_shared_host():
-        return ""
+def read_key_cookie():
+    """브라우저 쿠키에 저장된 키를 읽습니다. 쿠키는 이 브라우저에만 남습니다."""
     try:
-        return API_KEY_FILE.read_text(encoding="utf-8").strip()
+        return (st.context.cookies.get(API_KEY_COOKIE) or "").strip()
     except Exception:
         return ""
 
+def write_key_cookie(key):
+    """브라우저에 키를 저장합니다(1년). 같은 컴퓨터·브라우저에서는 다시 넣지 않아도 됩니다."""
+    payload = base64.b64encode(key.encode("utf-8")).decode("ascii")
+    st.components.v1.html(
+        f"""<script>
+(function() {{
+  try {{
+    var v = decodeURIComponent(escape(atob("{payload}")));
+    var secure = location.protocol === "https:" ? ";Secure" : "";
+    document.cookie = "{API_KEY_COOKIE}=" + encodeURIComponent(v)
+      + ";path=/;max-age=31536000;SameSite=Lax" + secure;
+  }} catch (e) {{}}
+}})();
+</script>""",
+        height=0,
+    )
+
+def clear_key_cookie():
+    st.components.v1.html(
+        f"""<script>
+document.cookie = "{API_KEY_COOKIE}=;path=/;max-age=0;SameSite=Lax";
+</script>""",
+        height=0,
+    )
+
+def load_saved_api_key():
+    """저장된 키를 불러옵니다. 내 컴퓨터면 파일, 아니면 브라우저 쿠키에서 읽습니다."""
+    if not is_shared_host():
+        try:
+            saved = API_KEY_FILE.read_text(encoding="utf-8").strip()
+            if saved:
+                return saved
+        except Exception:
+            pass
+    return read_key_cookie()
+
 def save_api_key(key):
+    """키를 저장합니다. 어느 환경에서든 최소 브라우저에는 저장됩니다."""
+    write_key_cookie(key)
     if is_shared_host():
-        return False
+        return "cookie"
     try:
         API_KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
         API_KEY_FILE.write_text(key, encoding="utf-8")
-        return True
+        return "file"
     except Exception:
-        return False
+        return "cookie"
 
 def delete_saved_api_key():
+    clear_key_cookie()
     try:
         API_KEY_FILE.unlink()
-        return True
     except Exception:
-        return False
+        pass
+    return True
 
 saved_api_key = load_saved_api_key()
 
@@ -283,10 +561,11 @@ api_key = st.sidebar.text_input(
 )
 
 if api_key and api_key != saved_api_key:
-    if save_api_key(api_key):
-        st.sidebar.success("키를 저장했습니다. 다음부터는 자동으로 입력됩니다.")
+    where = save_api_key(api_key)
+    if where == "file":
+        st.sidebar.success("키를 저장했습니다. 이 컴퓨터에서는 다시 넣지 않아도 됩니다.")
     else:
-        st.sidebar.warning("공용 서버에서는 키를 저장하지 않습니다. 이번 접속에만 사용됩니다.")
+        st.sidebar.success("키를 이 브라우저에 저장했습니다. 다음 접속부터 자동으로 입력됩니다.")
 elif api_key and api_key == saved_api_key:
     st.sidebar.success("저장된 키를 불러왔습니다. 다시 넣지 않아도 됩니다.")
 else:
@@ -683,6 +962,75 @@ def generate_ox(model, transcript, count=10, avoid=None):
   "questions": [
     {{"question": "지문", "answer": "O", "explanation": "해설"}}
   ]
+}}
+```"""
+    return call_json(model, prompt)
+
+def generate_handout_data(model, transcript):
+    """학생에게 그대로 배포할 수 있는 요약 학습자료 데이터를 만듭니다."""
+    prompt = f"""당신은 공인중개사 수험 교재를 만드는 편집자입니다.
+아래 강의 내용을 학생에게 그대로 배포할 수 있는 요약 학습자료로 재구성하세요.
+
+[작성 원칙]
+- 강의에 나온 내용만 쓰세요. 강의에 없는 법령·수치를 추측해서 넣지 마세요.
+- 학생이 이 자료만 보고도 강의 내용을 복습할 수 있을 만큼 충실하게 쓰세요.
+- 비교할 대상이 있으면 table을, 수치를 견줄 수 있으면 chart를 넣으세요.
+  비교나 수치가 없는 단원은 table·chart를 넣지 말고 빈 값으로 두세요.
+- chart의 value는 반드시 숫자만 쓰세요(단위는 unit에 따로).
+
+[강의 내용]
+{transcript[:14000]}
+
+아래 JSON 형태로만 응답하세요. 문자열 안에서 줄을 바꿀 때는 \\n 을 쓰세요:
+```json
+{{
+  "title": "자료 제목",
+  "subtitle": "한 줄 부제",
+  "intro": "이 자료로 무엇을 배우는지 2~3문장",
+  "sections": [
+    {{
+      "no": "01",
+      "heading": "단원 제목",
+      "summary": "단원 요약 2~3문장",
+      "key_points": ["핵심 정리 3~5개"],
+      "table": {{"caption": "표 제목", "headers": ["구분", "내용"], "rows": [["항목", "설명"]]}},
+      "chart": {{"caption": "그래프 제목", "unit": "m", "items": [{{"name": "항목", "value": 5}}]}},
+      "callout": {{"kind": "law", "title": "근거 법령", "text": "설명"}}
+    }}
+  ],
+  "terms": [{{"term": "용어", "meaning": "뜻풀이"}}],
+  "flow": {{"caption": "절차 흐름", "steps": ["1단계", "2단계"]}},
+  "checklist": ["시험 직전 점검 항목 5~8개"]
+}}
+```
+callout의 kind는 law(법령근거) / tip(공략팁) / warn(주의) 중 하나입니다."""
+    return call_json(model, prompt)
+
+def generate_onepager_data(model, transcript):
+    """A4 한 장에 들어가는 체계도 데이터를 만듭니다."""
+    prompt = f"""당신은 공인중개사 수험 요약 전문가입니다.
+아래 강의 내용을 A4 딱 한 장짜리 체계도로 압축하세요.
+
+[제약 — 반드시 지키세요]
+- 종이 한 장에 들어가야 하므로 분량이 넘치면 안 됩니다.
+- 가지(branch)는 4~6개, 각 가지의 항목(items)은 3~5개.
+- 각 항목은 한 줄로 끝나게 25자 이내로 쓰세요. 문장이 아니라 요약 어구로 쓰세요.
+- 강의에 나온 내용만 쓰고, 없는 내용을 만들지 마세요.
+- key_numbers는 강의에 실제로 나온 숫자·기준만 쓰세요. 없으면 빈 배열로 두세요.
+
+[강의 내용]
+{transcript[:14000]}
+
+아래 JSON 형태로만 응답하세요:
+```json
+{{
+  "title": "체계도 제목",
+  "center": "가장 중심이 되는 주제 (12자 이내)",
+  "key_numbers": [{{"value": "5m", "label": "이격거리"}}],
+  "branches": [
+    {{"no": "1", "heading": "가지 제목 (14자 이내)", "items": ["요약 어구", "요약 어구"]}}
+  ],
+  "footer_note": "꼭 기억할 한 줄"
 }}
 ```"""
     return call_json(model, prompt)
@@ -1280,8 +1628,453 @@ def ox_to_text(questions, title):
         lines.append("")
     return "\n".join(lines)
 
+# ============================================================
+# 8·9. Google Material Design 스타일 (학생 배포용 / A4 체계도)
+# 토큰 출처: m3.material.io — Roboto+Noto Sans KR, Google 4색,
+# tonal elevation 우선, 라운드 12/16/28
+# ============================================================
+MATERIAL_CSS = """
+  :root{
+    --m-blue:#4285F4; --m-red:#EA4335; --m-yellow:#FBBC04; --m-green:#34A853;
+    --p50:#E8F0FE; --p100:#D2E3FC; --p200:#AECBFA; --p300:#8AB4F8;
+    --p500:#4285F4; --p600:#1A73E8; --p700:#1967D2; --p800:#185ABC; --p900:#174EA6;
+    --n0:#FFFFFF; --n50:#F8F9FA; --n100:#F1F3F4; --n200:#E8EAED;
+    --n300:#DADCE0; --n500:#9AA0A6; --n700:#5F6368; --n800:#3C4043; --n900:#202124;
+    --success-bg:#E6F4EA; --success-fg:#34A853;
+    --warning-bg:#FEF7E0; --warning-fg:#C58B00;
+    --error-bg:#FCE8E6; --error-fg:#EA4335;
+    --info-bg:#E8F0FE; --info-fg:#4285F4;
+    --surface:#FFFFFF; --surface-low:#F8F9FA;
+    --surface-container:#F1F3F4; --surface-high:#E8EAED;
+    --fg:#1F1F1F; --fg2:#5F6368; --fg3:#80868B;
+    --line:#DADCE0; --line-soft:#E8EAED;
+    --r-sm:8px; --r-md:12px; --r-lg:16px; --r-xl:28px; --r-full:9999px;
+    --sh-1:0 1px 2px rgba(0,0,0,.30),0 1px 3px 1px rgba(0,0,0,.15);
+    --sh-3:0 4px 8px 3px rgba(0,0,0,.15),0 1px 3px rgba(0,0,0,.30);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{
+    font-family:'Roboto','Noto Sans KR',-apple-system,BlinkMacSystemFont,sans-serif;
+    color:var(--fg);background:var(--surface);
+    line-height:1.43;letter-spacing:.25px;word-break:keep-all;
+    -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3{font-weight:500;letter-spacing:-.2px;line-height:1.25;}
+  .g-dots{display:inline-flex;gap:4px;align-items:center;}
+  .g-dots i{width:8px;height:8px;border-radius:50%;display:block;}
+  .g-dots i:nth-child(1){background:var(--m-blue);}
+  .g-dots i:nth-child(2){background:var(--m-red);}
+  .g-dots i:nth-child(3){background:var(--m-yellow);}
+  .g-dots i:nth-child(4){background:var(--m-green);}
+  .mark{
+    display:grid;place-items:center;background:var(--p500);color:#fff;
+    font-weight:700;letter-spacing:-.5px;border-radius:var(--r-lg) var(--r-lg) var(--r-lg) 5px;
+  }
+"""
+
+def _svg_bar_chart(chart):
+    """수치 비교용 가로 막대 그래프를 SVG로 그립니다(인쇄에서도 선명)."""
+    items = [it for it in (chart.get("items") or []) if isinstance(it.get("value"), (int, float))]
+    if not items:
+        return ""
+    unit = chart.get("unit", "")
+    top = max(float(it["value"]) for it in items) or 1.0
+    palette = ["var(--m-blue)", "var(--m-green)", "var(--m-yellow)", "var(--m-red)", "var(--p700)"]
+
+    row_h, gap, label_w, pad = 30, 10, 108, 8
+    height = len(items) * (row_h + gap) - gap + pad * 2
+    bar_max = 560 - label_w - 62
+
+    rows = []
+    for i, it in enumerate(items):
+        y = pad + i * (row_h + gap)
+        width = max(4.0, float(it["value"]) / top * bar_max)
+        color = palette[i % len(palette)]
+        name = html_escape(str(it.get("name", "")))
+        value = it["value"]
+        shown = f"{value:g}{unit}" if isinstance(value, float) else f"{value}{unit}"
+        rows.append(
+            f'<text x="{label_w - 10}" y="{y + row_h / 2 + 4}" text-anchor="end" '
+            f'font-size="12" fill="#5F6368">{name}</text>'
+            f'<rect x="{label_w}" y="{y}" width="{width:.1f}" height="{row_h}" '
+            f'rx="6" fill="{color}"/>'
+            f'<text x="{label_w + width + 8:.1f}" y="{y + row_h / 2 + 4}" '
+            f'font-size="12" font-weight="500" fill="#3C4043">{html_escape(shown)}</text>'
+        )
+    caption = chart.get("caption", "")
+    head = (f'<div class="chart-cap"><span class="g-dots"><i></i><i></i><i></i><i></i></span>'
+            f'{html_escape(caption)}</div>') if caption else ""
+    return (f'<div class="chart">{head}'
+            f'<svg viewBox="0 0 560 {height}" width="100%" height="{height}" '
+            f'role="img" aria-label="{html_escape(caption)}">{"".join(rows)}</svg></div>')
+
+def _table_html(table):
+    headers = table.get("headers") or []
+    rows = table.get("rows") or []
+    if not headers or not rows:
+        return ""
+    caption = table.get("caption", "")
+    head = (f'<div class="tbl-cap">{html_escape(caption)}</div>') if caption else ""
+    ths = "".join(f"<th>{html_escape(str(h))}</th>" for h in headers)
+    trs = ""
+    for row in rows:
+        tds = "".join(f"<td>{html_escape(str(c))}</td>" for c in row)
+        trs += f"<tr>{tds}</tr>"
+    return (f'<div class="tbl-wrap">{head}<table><thead><tr>{ths}</tr></thead>'
+            f"<tbody>{trs}</tbody></table></div>")
+
+CALLOUT_STYLE = {
+    "law": ("법령 근거", "law"),
+    "tip": ("공략 팁", "tip"),
+    "warn": ("주의", "warn"),
+}
+
+def generate_handout_html(hd, speaker):
+    """학생에게 그대로 배포할 수 있는 요약 학습자료 (Material Design)"""
+    title = hd.get("title", "요약 학습자료")
+    subtitle = hd.get("subtitle", "")
+    intro = hd.get("intro", "")
+    sections = hd.get("sections") or []
+    terms = hd.get("terms") or []
+    flow = hd.get("flow") or {}
+    checklist = hd.get("checklist") or []
+
+    body = ""
+    for idx, sec in enumerate(sections, 1):
+        no = html_escape(str(sec.get("no") or f"{idx:02d}"))
+        body += f"""
+    <section class="sec">
+      <div class="sec-head">
+        <span class="sec-no">{no}</span>
+        <div>
+          <h2>{html_escape(sec.get('heading',''))}</h2>
+          <p class="sec-sum">{html_escape(sec.get('summary',''))}</p>
+        </div>
+      </div>"""
+        points = sec.get("key_points") or []
+        if points:
+            body += '<ul class="points">'
+            for p in points:
+                body += f"<li>{html_escape(str(p))}</li>"
+            body += "</ul>"
+        if isinstance(sec.get("table"), dict):
+            body += _table_html(sec["table"])
+        if isinstance(sec.get("chart"), dict):
+            body += _svg_bar_chart(sec["chart"])
+        co = sec.get("callout")
+        if isinstance(co, dict) and co.get("text"):
+            label, cls = CALLOUT_STYLE.get(co.get("kind", "tip"), CALLOUT_STYLE["tip"])
+            co_title = html_escape(co.get("title") or label)
+            body += (f'<div class="callout {cls}"><strong>{co_title}</strong>'
+                     f'<span>{html_escape(co["text"])}</span></div>')
+        body += "</section>"
+
+    if isinstance(flow, dict) and (flow.get("steps") or []):
+        steps = flow["steps"]
+        body += f"""
+    <section class="sec">
+      <div class="sec-head"><span class="sec-no flow-no">▸</span>
+        <div><h2>{html_escape(flow.get('caption') or '절차 흐름')}</h2></div></div>
+      <div class="flow">"""
+        for i, s in enumerate(steps):
+            if i:
+                body += '<span class="flow-arrow">›</span>'
+            body += f'<div class="flow-step"><b>{i+1}</b>{html_escape(str(s))}</div>'
+        body += "</div></section>"
+
+    if terms:
+        body += """
+    <section class="sec">
+      <div class="sec-head"><span class="sec-no term-no">用</span>
+        <div><h2>꼭 알아야 할 용어</h2></div></div>
+      <div class="terms">"""
+        for t in terms:
+            body += (f'<div class="term"><b>{html_escape(str(t.get("term","")))}</b>'
+                     f'<span>{html_escape(str(t.get("meaning","")))}</span></div>')
+        body += "</div></section>"
+
+    if checklist:
+        body += """
+    <section class="sec check-sec">
+      <div class="sec-head"><span class="sec-no chk-no">✓</span>
+        <div><h2>시험 직전 최종 점검</h2></div></div>
+      <div class="checks">"""
+        for c in checklist:
+            body += f'<label class="chk"><span class="box"></span>{html_escape(str(c))}</label>'
+        body += "</div></section>"
+
+    return f"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{html_escape(title)} — 요약 학습자료</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<style>
+{MATERIAL_CSS}
+  body{{background:var(--surface-low);}}
+  .wrap{{max-width:900px;margin:0 auto;padding:28px 20px 64px;}}
+  .hero{{
+    background:
+      radial-gradient(circle at 92% 8%, rgba(251,188,4,.22) 0 20%, transparent 21%),
+      radial-gradient(circle at 6% 96%, rgba(234,67,53,.16) 0 18%, transparent 19%),
+      var(--p50);
+    border:1px solid var(--line-soft);
+    border-radius:var(--r-xl) var(--r-xl) var(--r-md) var(--r-xl);
+    padding:30px 30px 28px;margin-bottom:20px;
+  }}
+  .hero-top{{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:20px;}}
+  .brand{{display:flex;align-items:center;gap:11px;font-size:14px;font-weight:500;}}
+  .brand .mark{{width:40px;height:40px;font-size:13px;}}
+  .chip{{
+    display:inline-flex;align-items:center;gap:7px;padding:7px 13px;
+    background:var(--surface);border:1px solid var(--line);border-radius:var(--r-full);
+    font-size:12px;font-weight:500;color:var(--fg2);
+  }}
+  .hero h1{{font-size:32px;line-height:1.2;margin-bottom:10px;}}
+  .hero .sub{{font-size:16px;font-weight:500;color:var(--p700);margin-bottom:14px;}}
+  .hero .intro{{font-size:14px;color:var(--fg2);line-height:1.6;max-width:64ch;}}
+  .sec{{
+    background:var(--surface);border:1px solid var(--line-soft);
+    border-radius:var(--r-lg);padding:24px 26px;margin-bottom:14px;
+  }}
+  .sec:nth-of-type(even){{border-radius:var(--r-lg) var(--r-lg) var(--r-lg) var(--r-md);}}
+  .sec-head{{display:flex;align-items:flex-start;gap:14px;margin-bottom:14px;}}
+  .sec-no{{
+    flex:none;width:40px;height:40px;display:grid;place-items:center;
+    background:var(--p100);color:var(--p800);font-weight:700;font-size:14px;
+    border-radius:var(--r-md);
+  }}
+  .flow-no{{background:var(--success-bg);color:var(--success-fg);}}
+  .term-no{{background:var(--warning-bg);color:var(--warning-fg);}}
+  .chk-no{{background:var(--p500);color:#fff;}}
+  .sec h2{{font-size:21px;margin-bottom:5px;}}
+  .sec-sum{{font-size:13.5px;color:var(--fg2);line-height:1.6;}}
+  .points{{list-style:none;display:flex;flex-direction:column;gap:8px;margin:14px 0 0;}}
+  .points li{{
+    position:relative;padding:10px 14px 10px 34px;background:var(--surface-container);
+    border-radius:var(--r-md);font-size:14px;line-height:1.55;
+  }}
+  .points li::before{{
+    content:"";position:absolute;left:14px;top:17px;width:9px;height:9px;
+    border-radius:50%;background:var(--p500);
+  }}
+  .tbl-wrap{{margin-top:16px;overflow-x:auto;}}
+  .tbl-cap,.chart-cap{{
+    display:flex;align-items:center;gap:8px;font-size:12px;font-weight:500;
+    color:var(--fg2);margin-bottom:8px;letter-spacing:.4px;
+  }}
+  table{{width:100%;border-collapse:collapse;font-size:13.5px;min-width:min(100%,420px);}}
+  th{{
+    background:var(--p50);color:var(--p900);font-weight:500;text-align:left;
+    padding:11px 13px;border-bottom:1px solid var(--line);
+  }}
+  td{{padding:11px 13px;border-bottom:1px solid var(--line-soft);color:var(--fg2);}}
+  tbody tr:nth-child(even) td{{background:var(--n50);}}
+  .chart{{margin-top:18px;padding:16px;background:var(--surface-low);border-radius:var(--r-md);}}
+  .callout{{
+    display:flex;flex-direction:column;gap:5px;margin-top:16px;
+    padding:14px 16px;border-radius:var(--r-md);font-size:13.5px;line-height:1.6;
+  }}
+  .callout strong{{font-size:12px;font-weight:700;letter-spacing:.5px;}}
+  .callout.law{{background:var(--info-bg);color:var(--p900);}}
+  .callout.law strong{{color:var(--p700);}}
+  .callout.tip{{background:var(--success-bg);color:#14532d;}}
+  .callout.tip strong{{color:var(--success-fg);}}
+  .callout.warn{{background:var(--warning-bg);color:#6b4b00;}}
+  .callout.warn strong{{color:var(--warning-fg);}}
+  .flow{{display:flex;flex-wrap:wrap;align-items:center;gap:9px;}}
+  .flow-step{{
+    display:flex;align-items:center;gap:9px;padding:11px 15px;
+    background:var(--p50);border-radius:var(--r-full);font-size:13.5px;font-weight:500;
+  }}
+  .flow-step b{{
+    width:21px;height:21px;display:grid;place-items:center;border-radius:50%;
+    background:var(--p500);color:#fff;font-size:11px;
+  }}
+  .flow-arrow{{color:var(--p300);font-size:19px;font-weight:700;}}
+  .terms{{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;}}
+  .term{{
+    display:flex;flex-direction:column;gap:5px;padding:13px 15px;
+    background:var(--surface-container);border-radius:var(--r-md);
+  }}
+  .term b{{font-size:14px;font-weight:700;color:var(--p800);}}
+  .term span{{font-size:13px;color:var(--fg2);line-height:1.55;}}
+  .check-sec{{background:var(--p50);border-color:var(--p200);}}
+  .checks{{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:9px;}}
+  .chk{{
+    display:flex;align-items:center;gap:11px;padding:12px 15px;background:var(--surface);
+    border:1px solid var(--line);border-radius:var(--r-md);font-size:13.5px;font-weight:500;
+  }}
+  .chk .box{{
+    flex:none;width:18px;height:18px;border:2px solid var(--p500);
+    border-radius:var(--r-sm)/2;border-radius:5px;
+  }}
+  footer{{
+    margin-top:26px;padding-top:20px;border-top:1px solid var(--line);
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
+    font-size:12px;color:var(--fg3);
+  }}
+  @media print{{
+    body{{background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
+    .wrap{{max-width:none;padding:0;}}
+    .sec{{break-inside:avoid;page-break-inside:avoid;}}
+    .hero{{break-after:avoid;}}
+  }}
+  @media (max-width:640px){{
+    .hero{{padding:22px 20px;}} .hero h1{{font-size:26px;}} .sec{{padding:20px 18px;}}
+  }}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="hero">
+    <div class="hero-top">
+      <div class="brand"><span class="mark">강의</span><span>{html_escape(speaker)} 강의 요약</span></div>
+      <span class="chip"><span class="g-dots"><i></i><i></i><i></i><i></i></span>학습자료</span>
+    </div>
+    <h1>{html_escape(title)}</h1>
+    <div class="sub">{html_escape(subtitle)}</div>
+    <p class="intro">{html_escape(intro)}</p>
+  </header>
+{body}
+  <footer>
+    <span>{html_escape(title)} · {html_escape(speaker)} 강의 기반</span>
+    <span class="g-dots"><i></i><i></i><i></i><i></i></span>
+  </footer>
+</div>
+</body>
+</html>"""
+
+def generate_onepager_html(od, speaker):
+    """A4 한 장에 맞춘 체계도 (Material Design)"""
+    title = od.get("title", "핵심 체계도")
+    center = od.get("center", "")
+    branches = od.get("branches") or []
+    key_numbers = od.get("key_numbers") or []
+    note = od.get("footer_note", "")
+
+    accents = ["var(--m-blue)", "var(--m-green)", "var(--m-yellow)", "var(--m-red)",
+               "var(--p700)", "var(--p300)"]
+    tints = ["var(--p50)", "var(--success-bg)", "var(--warning-bg)", "var(--error-bg)",
+             "var(--p100)", "var(--surface-container)"]
+
+    cards = ""
+    for i, b in enumerate(branches):
+        items = b.get("items") or []
+        lis = "".join(f"<li>{html_escape(str(x))}</li>" for x in items)
+        cards += f"""
+      <article class="br" style="--accent:{accents[i % len(accents)]};--tint:{tints[i % len(tints)]}">
+        <div class="br-head"><span class="br-no">{html_escape(str(b.get('no') or i + 1))}</span>
+          <h3>{html_escape(str(b.get('heading','')))}</h3></div>
+        <ul>{lis}</ul>
+      </article>"""
+
+    nums = ""
+    if key_numbers:
+        cells = "".join(
+            f'<div class="kn"><b>{html_escape(str(k.get("value","")))}</b>'
+            f'<span>{html_escape(str(k.get("label","")))}</span></div>'
+            for k in key_numbers[:5]
+        )
+        nums = f'<div class="knums">{cells}</div>'
+
+    count = len(branches)
+    cols = 2 if count <= 4 else 3
+    return f"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{html_escape(title)} — A4 체계도</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<style>
+{MATERIAL_CSS}
+  @page{{size:A4 portrait;margin:0;}}
+  body{{background:var(--n200);display:flex;justify-content:center;padding:16px;}}
+  .page{{
+    width:210mm;height:297mm;flex:none;background:var(--surface);
+    padding:12mm 11mm 9mm;display:flex;flex-direction:column;overflow:hidden;
+    box-shadow:var(--sh-3);
+  }}
+  .top{{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:5mm;}}
+  .brand{{display:flex;align-items:center;gap:9px;font-size:11px;font-weight:500;color:var(--fg2);}}
+  .brand .mark{{width:30px;height:30px;font-size:11px;}}
+  h1{{font-size:23px;line-height:1.15;}}
+  .center{{
+    display:flex;align-items:center;gap:11px;margin-bottom:5mm;padding:11px 16px;
+    background:linear-gradient(100deg,var(--p600),var(--p800));color:#fff;
+    border-radius:var(--r-xl) var(--r-xl) var(--r-md) var(--r-xl);
+  }}
+  .center .lab{{
+    font-size:9.5px;font-weight:500;letter-spacing:1px;text-transform:uppercase;
+    background:rgba(255,255,255,.22);padding:4px 9px;border-radius:var(--r-full);flex:none;
+  }}
+  .center strong{{font-size:17px;font-weight:500;letter-spacing:-.2px;}}
+  .knums{{display:flex;gap:6px;margin-bottom:4mm;}}
+  .kn{{
+    flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;
+    padding:8px 5px;background:var(--surface-container);border-radius:var(--r-md);
+  }}
+  .kn b{{font-size:16px;font-weight:700;color:var(--p700);letter-spacing:-.3px;}}
+  .kn span{{font-size:9px;color:var(--fg2);text-align:center;line-height:1.3;}}
+  .grid{{
+    flex:1;display:grid;grid-template-columns:repeat({cols},1fr);
+    gap:4mm;min-height:0;align-content:start;
+  }}
+  .br{{
+    background:var(--tint);border-left:4px solid var(--accent);
+    border-radius:var(--r-md);padding:10px 12px;min-height:0;overflow:hidden;
+  }}
+  .br-head{{display:flex;align-items:center;gap:8px;margin-bottom:7px;}}
+  .br-no{{
+    flex:none;width:20px;height:20px;display:grid;place-items:center;border-radius:6px;
+    background:var(--accent);color:#fff;font-size:11px;font-weight:700;
+  }}
+  .br h3{{font-size:13px;font-weight:700;line-height:1.25;}}
+  .br ul{{list-style:none;display:flex;flex-direction:column;gap:4px;}}
+  .br li{{
+    position:relative;padding-left:11px;font-size:10.5px;line-height:1.45;color:var(--n800);
+  }}
+  .br li::before{{
+    content:"";position:absolute;left:0;top:6px;width:5px;height:5px;
+    border-radius:50%;background:var(--accent);
+  }}
+  .note{{
+    margin-top:4mm;padding:9px 14px;background:var(--p50);
+    border-radius:var(--r-md);font-size:11px;font-weight:500;color:var(--p900);
+    display:flex;align-items:center;gap:9px;
+  }}
+  .foot{{
+    margin-top:3mm;padding-top:2.5mm;border-top:1px solid var(--line-soft);
+    display:flex;align-items:center;justify-content:space-between;
+    font-size:9px;color:var(--fg3);
+  }}
+  @media print{{
+    body{{background:#fff;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
+    .page{{box-shadow:none;width:210mm;height:297mm;}}
+  }}
+</style>
+</head>
+<body>
+  <div class="page">
+    <div class="top">
+      <div class="brand"><span class="mark">체계</span><span>{html_escape(speaker)} 강의 · 한 장 요약</span></div>
+      <span class="g-dots"><i></i><i></i><i></i><i></i></span>
+    </div>
+    <h1>{html_escape(title)}</h1>
+    <div class="center"><span class="lab">핵심</span><strong>{html_escape(center)}</strong></div>
+    {nums}
+    <div class="grid">{cards}
+    </div>
+    {f'<div class="note"><span class="g-dots"><i></i><i></i><i></i><i></i></span>{html_escape(note)}</div>' if note else ''}
+    <div class="foot"><span>{html_escape(title)} · {html_escape(speaker)}</span><span>A4 1장 · 인쇄용</span></div>
+  </div>
+</body>
+</html>"""
+
 # ================= ==========================================
-# 8. Streamlit 사용자 인터페이스
+# 10. Streamlit 사용자 인터페이스
 # ============================================================
 for key, default in [
     ("stage", "input"),          # input -> review -> done
@@ -1493,6 +2286,8 @@ if st.session_state.stage == "done" and st.session_state.results:
         "🗺 5. 체계도",
         "📋 6. 5지선다",
         "⭕ 7. O/X",
+        "🎒 8. 학생 배포용",
+        "📐 9. A4 체계도",
     ])
 
     with tabs[0]:
@@ -1609,3 +2404,90 @@ if st.session_state.stage == "done" and st.session_state.results:
             st.download_button("📥 HTML 다운로드", data=html,
                                file_name="ox.html", mime="text/html", key="dl_ox")
         st.components.v1.html(html, height=620, scrolling=True)
+
+    # --- 8. 학생 배포용 요약 학습자료 (선택 생성) ---
+    with tabs[8]:
+        st.markdown("**학생에게 그대로 나눠줄 수 있는 요약 학습자료**입니다. "
+                    "표·그래프·용어 정리·절차 흐름·최종 점검표가 들어갑니다. "
+                    "디자인은 구글 머티리얼(Material Design) 스타일입니다.")
+
+        if not r.get("handout"):
+            st.info("필요할 때만 만들도록 따로 두었습니다. 아래 버튼을 누르면 생성합니다.")
+            if st.button("🎒 학생 배포용 자료 만들기", type="primary", key="gen_handout"):
+                if not api_key:
+                    st.error("사이드바에 Gemini API Key를 먼저 입력해주세요.")
+                else:
+                    genai.configure(api_key=api_key)
+                    with st.spinner("학생 배포용 자료를 만드는 중입니다..."):
+                        try:
+                            model = get_working_model()
+                            r["handout"] = generate_handout_data(model, r["transcript"])
+                            save_project(st.session_state.project_id, r)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"생성 실패: {e}")
+        else:
+            hd = r["handout"]
+            html = generate_handout_html(hd, speaker)
+            col1, col2, col3 = st.columns([1.1, 1.1, 1])
+            with col1:
+                st.download_button("📥 HTML 다운로드", data=html,
+                                   file_name="handout.html", mime="text/html", key="dl_handout")
+            with col2:
+                try:
+                    st.download_button("📄 PDF 다운로드", data=handout_pdf_bytes(hd, speaker),
+                                       file_name="handout.pdf", mime="application/pdf",
+                                       key="dl_handout_pdf")
+                except Exception as e:
+                    st.caption(f"PDF 변환 실패: {e}")
+            with col3:
+                if st.button("🔄 다시 만들기", key="regen_handout"):
+                    r.pop("handout", None)
+                    save_project(st.session_state.project_id, r)
+                    st.rerun()
+            st.caption("브라우저에서 열어 인쇄(Ctrl+P)하면 학생 배포용으로 바로 쓸 수 있습니다.")
+            st.components.v1.html(html, height=760, scrolling=True)
+
+    # --- 9. A4 한 장 체계도 (선택 생성) ---
+    with tabs[9]:
+        st.markdown("**A4 한 장에 전부 들어가는 체계도**입니다. "
+                    "인쇄하면 딱 한 장으로 나오도록 분량을 맞춰 만듭니다. "
+                    "디자인은 구글 머티리얼(Material Design) 스타일입니다.")
+
+        if not r.get("onepager"):
+            st.info("필요할 때만 만들도록 따로 두었습니다. 아래 버튼을 누르면 생성합니다.")
+            if st.button("📐 A4 체계도 만들기", type="primary", key="gen_onepager"):
+                if not api_key:
+                    st.error("사이드바에 Gemini API Key를 먼저 입력해주세요.")
+                else:
+                    genai.configure(api_key=api_key)
+                    with st.spinner("A4 한 장 체계도를 만드는 중입니다..."):
+                        try:
+                            model = get_working_model()
+                            r["onepager"] = generate_onepager_data(model, r["transcript"])
+                            save_project(st.session_state.project_id, r)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"생성 실패: {e}")
+        else:
+            od = r["onepager"]
+            html = generate_onepager_html(od, speaker)
+            col1, col2, col3 = st.columns([1.1, 1.1, 1])
+            with col1:
+                st.download_button("📥 HTML 다운로드", data=html,
+                                   file_name="onepager_a4.html", mime="text/html",
+                                   key="dl_onepager")
+            with col2:
+                try:
+                    st.download_button("📄 PDF(A4) 다운로드", data=onepager_pdf_bytes(od, speaker),
+                                       file_name="onepager_a4.pdf", mime="application/pdf",
+                                       key="dl_onepager_pdf")
+                except Exception as e:
+                    st.caption(f"PDF 변환 실패: {e}")
+            with col3:
+                if st.button("🔄 다시 만들기", key="regen_onepager"):
+                    r.pop("onepager", None)
+                    save_project(st.session_state.project_id, r)
+                    st.rerun()
+            st.caption("인쇄할 때 배율은 100%, 여백은 '없음'으로 두면 A4 한 장에 정확히 맞습니다.")
+            st.components.v1.html(html, height=1180, scrolling=True)
