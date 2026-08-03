@@ -475,11 +475,70 @@ def generate_structured_data(model, transcript):
     """
     return call_json(model, prompt)
 
-def call_json(model, prompt):
-    response = model.generate_content(prompt)
-    text = response.text
+def escape_control_chars_in_strings(raw):
+    """JSON 문자열 값 안에 그대로 들어온 줄바꿈·탭을 escape 시퀀스로 바꿉니다.
+    AI가 블로그 본문처럼 여러 줄인 글을 넣을 때 자주 발생합니다."""
+    out = []
+    in_string = False
+    escaped = False
+    for ch in raw:
+        if not in_string:
+            if ch == '"':
+                in_string = True
+            out.append(ch)
+            continue
+        if escaped:
+            out.append(ch)
+            escaped = False
+        elif ch == "\\":
+            out.append(ch)
+            escaped = True
+        elif ch == '"':
+            out.append(ch)
+            in_string = False
+        elif ch == "\n":
+            out.append("\\n")
+        elif ch == "\r":
+            out.append("\\r")
+        elif ch == "\t":
+            out.append("\\t")
+        else:
+            out.append(ch)
+    return "".join(out)
+
+def parse_model_json(text):
+    """AI 응답에서 JSON을 최대한 살려서 읽어냅니다."""
     match = re.search(r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL)
-    return json.loads(match.group(1) if match else text)
+    raw = (match.group(1) if match else text).strip()
+
+    # 앞뒤에 붙은 설명 문장을 걷어내고 실제 JSON 범위만 남긴다.
+    start, end = raw.find("{"), raw.rfind("}")
+    if start != -1 and end > start:
+        raw = raw[start : end + 1]
+
+    # strict=False는 문자열 안의 제어문자를 허용한다.
+    try:
+        return json.loads(raw, strict=False)
+    except json.JSONDecodeError:
+        return json.loads(escape_control_chars_in_strings(raw), strict=False)
+
+def call_json(model, prompt, attempts=3):
+    """JSON 응답을 요구하고, 형식이 깨지면 다시 물어봅니다."""
+    last_error = None
+    for i in range(attempts):
+        ask = prompt if i == 0 else (
+            prompt + "\n\n[중요] 앞선 응답의 JSON 형식이 깨졌습니다. "
+            "설명 없이 올바른 JSON만 출력하세요. "
+            "문자열 안에서 줄을 바꿀 때는 실제 줄바꿈이 아니라 \\n 으로 쓰세요."
+        )
+        try:
+            return parse_model_json(model.generate_content(ask).text)
+        except Exception as e:
+            last_error = e
+    raise ValueError(
+        "AI가 올바른 형식으로 응답하지 않았습니다. 다시 시도해주세요. "
+        f"(원인: {type(last_error).__name__}: {last_error})"
+    )
 
 def generate_blog_post(model, transcript):
     prompt = f"""당신은 공인중개사 실무 블로그를 운영하는 부동산 전문 작가이자 SEO/AEO 전문가입니다.
