@@ -681,12 +681,20 @@ def render_key_bridge(current="", forget=False):
     el.dispatchEvent(new win.KeyboardEvent("keydown", {{ key: "Enter", keyCode: 13, bubbles: true }}));
     el.blur();
   }}
+  // 이 스크립트는 입력칸보다 먼저 뜰 수 있다. 입력칸이 그려질 때까지 잠깐 기다린다.
+  function whenInput(fn) {{
+    var tries = 0;
+    (function look() {{
+      var el = inputEl();
+      if (el) return fn(el);
+      if (++tries < 50) setTimeout(look, 100);   // 최대 5초
+    }})();
+  }}
 
   if (FORGET) {{
     try {{ store.removeItem(KEY); }} catch (e) {{}}
     doc.cookie = KEY + "=;path=/;max-age=0;SameSite=Lax";
-    var el0 = inputEl();
-    if (el0 && el0.value) setInput(el0, "");
+    whenInput(function (el) {{ if (el.value) setInput(el, ""); }});
     return;
   }}
 
@@ -709,8 +717,8 @@ def render_key_bridge(current="", forget=False):
   }}
   if (!saved) return;
 
-  var el = inputEl();
-  if (el && !el.value) setInput(el, saved);   // 비어 있을 때만 채운다(무한 반복 방지)
+  // 비어 있을 때만 채운다(무한 반복 방지)
+  whenInput(function (el) {{ if (!el.value) setInput(el, saved); }});
 }})();
 </script>""",
         height=0,
