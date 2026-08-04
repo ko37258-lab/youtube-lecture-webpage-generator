@@ -617,97 +617,127 @@ def copy_box(label, text, key):
 # 공용 서버(Streamlit Cloud)는 다른 사람도 접속하므로 저장하지 않는다.
 # ============================================================
 API_KEY_FILE = Path.home() / ".youtube_lecture_generator" / "api_key.txt"
-API_KEY_COOKIE = "ylg_gemini_key"
+API_KEY_STORE = "ylg_gemini_key"   # 브라우저 localStorage 이름 (예전 쿠키 이름과 동일 — 이관용)
 
 def is_shared_host():
     """여러 사람이 접속하는 공용 서버에서 실행 중인지 판단합니다."""
     return os.path.exists("/mount/src") or bool(os.environ.get("STREAMLIT_SHARING_MODE"))
 
-def read_key_cookie():
-    """브라우저 쿠키에 저장된 키를 읽습니다. 쿠키는 이 브라우저에만 남습니다."""
+# ── 왜 쿠키가 아니라 "입력칸 자동 채우기"인가 ───────────────────────────────
+# 예전에는 브라우저 쿠키에 저장하고 st.context.cookies 로 읽었는데,
+# Streamlit Cloud 에서는 쿠키가 앱까지 전달되지 않아 항상 빈 값이 왔다.
+# (쿠키는 브라우저에 분명히 남아 있는데 파이썬에서는 안 보임 → 매번 다시 입력)
+# 그래서 서버가 읽는 대신, 브라우저가 저장된 키로 입력칸을 직접 채우고
+# Streamlit 이 그 값을 평소처럼 파이썬으로 보내도록 바꿨다.
+
+def load_key_from_file():
+    """내 컴퓨터에서 실행할 때만 쓰는 파일 저장분."""
+    if is_shared_host():
+        return ""
     try:
-        return (st.context.cookies.get(API_KEY_COOKIE) or "").strip()
+        return API_KEY_FILE.read_text(encoding="utf-8").strip()
     except Exception:
         return ""
 
-def write_key_cookie(key):
-    """브라우저에 키를 저장합니다(1년). 같은 컴퓨터·브라우저에서는 다시 넣지 않아도 됩니다."""
-    payload = base64.b64encode(key.encode("utf-8")).decode("ascii")
+def save_key_to_file(key):
+    if is_shared_host():
+        return False
+    try:
+        API_KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        API_KEY_FILE.write_text(key, encoding="utf-8")
+        return True
+    except Exception:
+        return False
+
+def delete_key_file():
+    try:
+        API_KEY_FILE.unlink()
+    except Exception:
+        pass
+
+def render_key_bridge(current="", forget=False):
+    """브라우저 저장소 ↔ 입력칸을 잇는 다리.
+
+    - 파이썬이 키를 갖고 있으면 → 브라우저에 저장한다
+    - 파이썬이 비어 있고 저장된 키가 있으면 → 입력칸을 채워 파이썬으로 보낸다
+    - forget=True 면 저장분을 지우고 입력칸도 비운다
+    """
+    payload = base64.b64encode((current or "").encode("utf-8")).decode("ascii")
     st.components.v1.html(
         f"""<script>
 (function() {{
+  var KEY = "{API_KEY_STORE}";
+  var FORGET = {"true" if forget else "false"};
+  var doc, win, store;
   try {{
-    var v = decodeURIComponent(escape(atob("{payload}")));
-    var secure = location.protocol === "https:" ? ";Secure" : "";
-    document.cookie = "{API_KEY_COOKIE}=" + encodeURIComponent(v)
-      + ";path=/;max-age=31536000;SameSite=Lax" + secure;
-  }} catch (e) {{}}
+    win = window.parent; doc = win.document; store = win.localStorage;
+  }} catch (e) {{ return; }}   // 접근 못 하면 조용히 포기 (직접 입력은 그대로 됨)
+
+  function inputEl() {{ return doc.querySelector('input[aria-label="API 키"]'); }}
+  function setInput(el, v) {{
+    var setter = Object.getOwnPropertyDescriptor(win.HTMLInputElement.prototype, "value").set;
+    setter.call(el, v);
+    el.dispatchEvent(new win.Event("input", {{ bubbles: true }}));
+    el.dispatchEvent(new win.KeyboardEvent("keydown", {{ key: "Enter", keyCode: 13, bubbles: true }}));
+    el.blur();
+  }}
+
+  if (FORGET) {{
+    try {{ store.removeItem(KEY); }} catch (e) {{}}
+    doc.cookie = KEY + "=;path=/;max-age=0;SameSite=Lax";
+    var el0 = inputEl();
+    if (el0 && el0.value) setInput(el0, "");
+    return;
+  }}
+
+  var cur = "";
+  try {{ cur = decodeURIComponent(escape(atob("{payload}"))); }} catch (e) {{}}
+
+  if (cur) {{                       // 파이썬이 값을 갖고 있다 → 저장만 하고 끝
+    try {{ store.setItem(KEY, cur); }} catch (e) {{}}
+    return;
+  }}
+
+  var saved = "";
+  try {{ saved = store.getItem(KEY) || ""; }} catch (e) {{}}
+  if (!saved) {{                    // 예전 쿠키에 저장해 둔 사람은 1회 이관
+    var m = doc.cookie.match(new RegExp("(?:^|;\\\\s*)" + KEY + "=([^;]*)"));
+    if (m) {{
+      try {{ saved = decodeURIComponent(m[1]); }} catch (e) {{ saved = m[1]; }}
+      try {{ store.setItem(KEY, saved); }} catch (e) {{}}
+    }}
+  }}
+  if (!saved) return;
+
+  var el = inputEl();
+  if (el && !el.value) setInput(el, saved);   // 비어 있을 때만 채운다(무한 반복 방지)
 }})();
 </script>""",
         height=0,
     )
 
-def clear_key_cookie():
-    st.components.v1.html(
-        f"""<script>
-document.cookie = "{API_KEY_COOKIE}=;path=/;max-age=0;SameSite=Lax";
-</script>""",
-        height=0,
-    )
-
-def load_saved_api_key():
-    """저장된 키를 불러옵니다. 내 컴퓨터면 파일, 아니면 브라우저 쿠키에서 읽습니다."""
-    if not is_shared_host():
-        try:
-            saved = API_KEY_FILE.read_text(encoding="utf-8").strip()
-            if saved:
-                return saved
-        except Exception:
-            pass
-    return read_key_cookie()
-
-def save_api_key(key):
-    """키를 저장합니다. 어느 환경에서든 최소 브라우저에는 저장됩니다."""
-    write_key_cookie(key)
-    if is_shared_host():
-        return "cookie"
-    try:
-        API_KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
-        API_KEY_FILE.write_text(key, encoding="utf-8")
-        return "file"
-    except Exception:
-        return "cookie"
-
-def delete_saved_api_key():
-    clear_key_cookie()
-    try:
-        API_KEY_FILE.unlink()
-    except Exception:
-        pass
-    return True
-
-saved_api_key = load_saved_api_key()
+file_key = load_key_from_file()
 
 st.sidebar.subheader("🔑 Gemini API 키")
 api_key = st.sidebar.text_input(
-    "API 키", type="password", value=saved_api_key,
+    "API 키", type="password", value=file_key,
     placeholder="AIza... 로 시작하는 키", label_visibility="collapsed",
 )
 
-if api_key and api_key != saved_api_key:
-    where = save_api_key(api_key)
-    if where == "file":
-        st.sidebar.success("키를 저장했습니다. 이 컴퓨터에서는 다시 넣지 않아도 됩니다.")
-    else:
-        st.sidebar.success("키를 이 브라우저에 저장했습니다. 다음 접속부터 자동으로 입력됩니다.")
-elif api_key and api_key == saved_api_key:
-    st.sidebar.success("저장된 키를 불러왔습니다. 다시 넣지 않아도 됩니다.")
+forget_now = st.sidebar.button("저장된 키 지우기", key="clear_api_key")
+if forget_now:
+    delete_key_file()
+    render_key_bridge(forget=True)
+    st.sidebar.info("저장된 키를 지웠습니다.")
 else:
-    st.sidebar.info("아래 안내를 보고 키를 발급받아 넣어주세요. 한 번만 넣으면 됩니다.")
-
-if saved_api_key and st.sidebar.button("저장된 키 지우기", key="clear_api_key"):
-    delete_saved_api_key()
-    st.rerun()
+    if api_key:
+        if not is_shared_host() and api_key != file_key:
+            save_key_to_file(api_key)
+        render_key_bridge(api_key)          # 브라우저에도 저장 (다음 접속 자동 입력)
+        st.sidebar.success("키가 저장되어 있습니다. 다음 접속에도 자동으로 입력됩니다.")
+    else:
+        render_key_bridge("")               # 저장된 키가 있으면 입력칸을 채운다
+        st.sidebar.info("아래 안내를 보고 키를 발급받아 넣어주세요. 한 번만 넣으면 됩니다.")
 
 with st.sidebar.expander("❓ API 키 발급받는 방법 (처음 한 번만)"):
     st.markdown(
