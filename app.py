@@ -226,6 +226,29 @@ iframe{border-radius:8px;background:#fff;max-width:100%;}
 </style>
 """, unsafe_allow_html=True)
 
+# 유튜브 채널(고상철TV) 배너를 앱 배경으로 사용
+def _load_bg_image_b64():
+    try:
+        img_path = Path(__file__).parent / "assets" / "channel_banner.jpg"
+        return base64.b64encode(img_path.read_bytes()).decode()
+    except Exception:
+        return ""
+
+_bg_b64 = _load_bg_image_b64()
+if _bg_b64:
+    st.markdown(f"""
+    <style>
+    .stApp{{
+      background-image:
+        linear-gradient(rgba(245,245,240,.90), rgba(245,245,240,.90)),
+        url('data:image/jpeg;base64,{_bg_b64}');
+      background-size: cover;
+      background-position: center top;
+      background-attachment: fixed;
+    }}
+    </style>
+    """, unsafe_allow_html=True)
+
 st.title("🎥 유튜브 강의 콘텐츠 자동 생성기")
 
 LOCAL_ARCHIVE = Path("archive")
