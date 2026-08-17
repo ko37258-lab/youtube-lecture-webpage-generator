@@ -17,9 +17,9 @@ st.set_page_config(page_title="MR.K 유튜브/대본으로 15가지 뽑아내기
                    page_icon="🎥", layout="wide")
 
 # ============================================================
-# Miro 스타일 테마
-# 토큰 출처: miro.com/brand — Miro Yellow #FFD02F, Indigo #4262FF,
-# warm beige 캔버스 + 도트 그리드, 스티키 노트(라운드 2px)
+# Stripe 스타일 테마
+# 토큰 출처: stripe.com 대시보드 — Blurple #635BFF, Navy #0A2540,
+# 흰 카드 + 옅은 블루그레이 캔버스, 밑줄 탭, 절제된 그림자
 # ============================================================
 st.markdown("""
 <style>
@@ -27,34 +27,33 @@ st.markdown("""
 @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css');
 
 :root{
-  --miro-yellow:#FFD02F; --miro-yellow-600:#E6BB1E; --miro-yellow-700:#B8941A;
-  --miro-yellow-50:#FFF9E0; --miro-yellow-100:#FFF1B5; --miro-yellow-200:#FFE883;
-  --miro-indigo:#4262FF; --miro-navy:#050038;
-  --sticky-coral:#FF6F61; --sticky-cyan:#A0E7E5; --sticky-purple:#B4A0FF;
-  --miro-canvas:#F5F5F0; --miro-dot:#D0D0C8;
-  --miro-fg:#050038; --miro-fg2:#5A5A66; --miro-fg3:#87878F;
-  --miro-line:#E0E0E0; --miro-line-soft:#ECECE4;
-  --sh-sticky:2px 3px 0 rgba(5,0,56,.06);
-  --sh-sm:0 1px 3px rgba(5,0,56,.06);
-  --sh-md:0 4px 12px rgba(5,0,56,.10);
+  --brand:#635BFF; --brand-600:#5851DB; --brand-700:#4A42C4;
+  --brand-50:#F5F4FF; --brand-100:#EDEBFF; --brand-200:#D9D6FF;
+  --warn-bg:#FFF6E5; --warn-line:#FFE1A8;
+  --info-bg:#EAF2FF; --info-line:#BFDBFE;
+  --success-bg:#E3F9F1; --success-line:#B4EDD8; --success-ink:#0A6B4D;
+  --error-bg:#FFE9E9; --error-line:#FFC9C9;
+  --miro-canvas:#F6F9FC;
+  --miro-fg:#0A2540; --miro-fg2:#425466; --miro-fg3:#6B7C93;
+  --miro-line:#E3E8EE; --miro-line-soft:#EDF1F7;
+  --sh-sm:0 1px 2px rgba(10,37,64,.06);
+  --sh-md:0 4px 16px -4px rgba(10,37,64,.16);
 }
 
-/* 무한 캔버스 — 도트 그리드 베이지 (Miro 시그니처) */
+/* 캔버스 — 옅은 블루그레이 평면 (Stripe 시그니처) */
 .stApp{
   background-color:var(--miro-canvas);
-  background-image:radial-gradient(var(--miro-dot) 1px, transparent 1px);
-  background-size:18px 18px;
 }
 html, body, .stApp, [class*="css"]{
   font-family:'Inter','Pretendard',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
   color:var(--miro-fg);
 }
 
-/* 본문을 흰 보드 위에 올린다 */
+/* 본문을 흰 카드 위에 올린다 */
 .stMain .block-container{
-  background:rgba(255,255,255,.86);
+  background:#fff;
   border:1px solid var(--miro-line);
-  border-radius:8px;
+  border-radius:12px;
   box-shadow:var(--sh-sm);
   padding:30px 34px 46px;
   max-width:1180px;
@@ -62,10 +61,10 @@ html, body, .stApp, [class*="css"]{
 
 /* 타이포 위계 */
 h1,h2,h3{color:var(--miro-fg);letter-spacing:-.02em;}
-h1{font-size:38px!important;font-weight:800!important;line-height:1.08!important;
-   letter-spacing:-.035em!important;}
-h2{font-size:26px!important;font-weight:700!important;}
-h3{font-size:19px!important;font-weight:600!important;}
+h1{font-size:36px!important;font-weight:700!important;line-height:1.12!important;
+   letter-spacing:-.03em!important;}
+h2{font-size:25px!important;font-weight:700!important;}
+h3{font-size:18px!important;font-weight:600!important;}
 
 /* 상단 보드바 */
 .stMain .block-container > div:first-child h1{
@@ -74,30 +73,32 @@ h3{font-size:19px!important;font-weight:600!important;}
   border-bottom:1px solid var(--miro-line-soft);
 }
 
-/* 버튼 — 기본은 흰 카드, primary는 Miro Yellow */
+/* 버튼 — 기본은 흰 카드, primary는 Blurple */
 .stButton > button{
   font-family:inherit;font-weight:600;font-size:14px;
   border-radius:6px;min-height:38px;padding:0 15px;
   background:#fff;color:var(--miro-fg);border:1px solid var(--miro-line);
-  box-shadow:none;transition:background 100ms ease, transform 100ms ease;
+  box-shadow:none;transition:background 100ms ease, box-shadow 100ms ease, transform 100ms ease;
 }
 .stButton > button:hover{background:var(--miro-canvas);border-color:var(--miro-fg3);}
 .stButton > button[kind="primary"],
 .stButton > button[data-testid="baseButton-primary"]{
-  background:var(--miro-yellow);color:var(--miro-navy);border:0;font-weight:700;
+  background:var(--brand);color:#fff;border:0;font-weight:600;
+  box-shadow:0 2px 5px -1px rgba(99,91,255,.45);
 }
 .stButton > button[kind="primary"]:hover,
 .stButton > button[data-testid="baseButton-primary"]:hover{
-  background:var(--miro-yellow-600);transform:translateY(-1px);
+  background:var(--brand-600);transform:translateY(-1px);
+  box-shadow:0 4px 10px -1px rgba(99,91,255,.5);
 }
 
-/* 다운로드 버튼 — 캔버스 밖 액션이므로 Indigo */
+/* 다운로드 버튼 — 결과물을 받는 보조 액션이므로 아웃라인 */
 .stDownloadButton > button{
-  font-family:inherit;font-weight:700;font-size:13.5px;
+  font-family:inherit;font-weight:600;font-size:13.5px;
   border-radius:6px;min-height:36px;padding:0 14px;
-  background:var(--miro-indigo);color:#fff;border:0;
+  background:#fff;color:var(--brand);border:1px solid var(--brand-200);
 }
-.stDownloadButton > button:hover{background:#2F4FE8;color:#fff;}
+.stDownloadButton > button:hover{background:var(--brand-50);border-color:var(--brand);color:var(--brand-700);}
 
 /* 입력 필드 */
 .stTextInput input, .stTextArea textarea, .stSelectbox div[data-baseweb="select"] > div{
@@ -105,16 +106,16 @@ h3{font-size:19px!important;font-weight:600!important;}
   border-radius:6px!important;color:var(--miro-fg)!important;font-family:inherit!important;
 }
 .stTextInput input:focus, .stTextArea textarea:focus{
-  border-color:var(--miro-indigo)!important;
-  box-shadow:0 0 0 2px rgba(66,98,255,.20)!important;
+  border-color:var(--brand)!important;
+  box-shadow:0 0 0 3px rgba(99,91,255,.15)!important;
 }
 
-/* 탭 — 도구바처럼. 항목이 많으니 가로 스크롤 대신 여러 줄로 접어 전부 보이게 한다.
+/* 탭 — Stripe 대시보드식 밑줄 탭. 항목이 많으니 가로 스크롤 대신 여러 줄로 접어 전부 보이게 한다.
    Streamlit 버전에 따라 role=tablist / data-baseweb 둘 다 쓰이므로 함께 겨냥한다 */
 .stTabs [role="tablist"],
 .stTabs [data-baseweb="tab-list"]{
-  gap:4px;background:#fff;padding:6px;border-radius:10px;
-  border:1px solid var(--miro-line);box-shadow:var(--sh-sm);
+  gap:18px;background:transparent;padding:0;border-radius:0;
+  border-bottom:1px solid var(--miro-line-soft);box-shadow:none;
   display:flex!important;
   flex-wrap:wrap!important;
   overflow-x:visible!important;
@@ -129,29 +130,31 @@ h3{font-size:19px!important;font-weight:600!important;}
 .stTabs [role="tab"],
 .stTabs [data-baseweb="tab"]{
   height:auto!important;min-height:0!important;
-  padding:9px 13px!important;border-radius:6px;background:transparent;
-  font-size:13px;font-weight:600;color:var(--miro-fg2);
+  padding:10px 2px!important;margin-bottom:-1px;border-radius:0;background:transparent;
+  border-bottom:2px solid transparent;
+  font-size:13.5px;font-weight:500;color:var(--miro-fg3);
   flex:0 0 auto!important;white-space:nowrap;
 }
 .stTabs [role="tab"]:hover,
-.stTabs [data-baseweb="tab"]:hover{background:var(--miro-canvas);color:var(--miro-fg);}
+.stTabs [data-baseweb="tab"]:hover{background:transparent;color:var(--miro-fg);}
 .stTabs [role="tab"][aria-selected="true"],
 .stTabs [data-baseweb="tab"][aria-selected="true"]{
-  background:var(--miro-yellow)!important;color:var(--miro-navy)!important;font-weight:700!important;
+  background:transparent!important;color:var(--brand)!important;font-weight:600!important;
+  border-bottom-color:var(--brand)!important;
 }
-/* 선택 표시용 밑줄/하이라이트 제거 (노란 배경으로 대체) */
+/* 기본 밑줄/하이라이트 표시 제거 (border-bottom으로 대체) */
 .stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"]{display:none!important;}
 .stTabs [role="tablist"] + div[class*="emotion"]:empty{display:none!important;}
 
-/* 알림 — 스티키 노트 (라운드 2px이 시그니처) */
+/* 알림 — 옅은 틴트 배경 + 얇은 테두리 */
 div[data-testid="stAlert"]{
-  border-radius:2px;border:0;box-shadow:var(--sh-sticky);
-  font-size:13.5px;font-weight:500;color:var(--miro-navy);
+  border-radius:8px;border:1px solid transparent;box-shadow:none;
+  font-size:13.5px;font-weight:500;color:var(--miro-fg);
 }
-div[data-testid="stAlertContentSuccess"]{background:#DCF7E5;}
-div[data-testid="stAlertContentInfo"]{background:var(--sticky-cyan);}
-div[data-testid="stAlertContentWarning"]{background:var(--miro-yellow-200);}
-div[data-testid="stAlertContentError"]{background:#FFC9C4;}
+div[data-testid="stAlertContentSuccess"]{background:var(--success-bg);border-color:var(--success-line);}
+div[data-testid="stAlertContentInfo"]{background:var(--info-bg);border-color:var(--info-line);}
+div[data-testid="stAlertContentWarning"]{background:var(--warn-bg);border-color:var(--warn-line);}
+div[data-testid="stAlertContentError"]{background:var(--error-bg);border-color:var(--error-line);}
 
 /* 사이드바 — 왼쪽 도구 패널 */
 section[data-testid="stSidebar"]{
@@ -161,13 +164,13 @@ section[data-testid="stSidebar"] .block-container{padding-top:24px;}
 section[data-testid="stSidebar"] h3{font-size:15px!important;font-weight:700!important;}
 
 /* 진행 바 */
-.stProgress > div > div > div > div{background:var(--miro-indigo);}
+.stProgress > div > div > div > div{background:var(--brand);}
 .stProgress > div > div > div{background:var(--miro-line-soft);border-radius:9999px;}
 
 /* 확장 패널 */
 details, div[data-testid="stExpander"]{
   background:#fff;border:1px solid var(--miro-line)!important;
-  border-radius:8px!important;box-shadow:none;
+  border-radius:10px!important;box-shadow:none;
 }
 div[data-testid="stExpander"] summary{font-weight:600;font-size:13.5px;}
 
@@ -180,25 +183,25 @@ div[data-testid="stCaptionContainer"], .stCaption{
 hr{border-color:var(--miro-line-soft);}
 
 /* 임베드된 결과물 미리보기 */
-iframe{border-radius:8px;background:#fff;max-width:100%;}
+iframe{border-radius:10px;background:#fff;max-width:100%;}
 
 /* 3단계 안내 박스 — 좁아지면 아래로 쌓이고, 화살표는 숨긴다 */
 .steps3{display:flex;gap:10px;align-items:stretch;flex-wrap:wrap;margin-bottom:6px;}
 .steps3 .s3{
   flex:1 1 190px;min-width:0;background:#fff;border:1px solid var(--miro-line);
-  border-radius:8px;padding:14px 16px;
+  border-radius:10px;padding:14px 16px;
 }
-.steps3 .s3.last{background:var(--miro-yellow-50);border-color:var(--miro-yellow-200);}
+.steps3 .s3.last{background:var(--brand-50);border-color:var(--brand-200);}
 .steps3 .s3 .no{
-  display:inline-block;background:var(--miro-navy);color:#fff;font-weight:700;
+  display:inline-block;background:var(--miro-fg);color:#fff;font-weight:700;
   font-size:11px;border-radius:999px;padding:2px 9px;margin-bottom:8px;
 }
-.steps3 .s3.last .no{background:var(--miro-yellow-700);}
+.steps3 .s3.last .no{background:var(--brand-700);}
 .steps3 .s3 .t{font-weight:700;font-size:14px;color:var(--miro-fg);margin-bottom:4px;}
 .steps3 .s3 .d{font-size:12.5px;color:var(--miro-fg2);line-height:1.55;}
 .steps3 .tagrow{display:flex;flex-wrap:wrap;gap:4px;margin-top:2px;}
 .steps3 .tagrow span{
-  background:#fff;border:1px solid var(--miro-yellow-200);border-radius:5px;
+  background:#fff;border:1px solid var(--brand-200);border-radius:5px;
   padding:2px 7px;font-size:11.5px;color:var(--miro-fg2);
 }
 @media (max-width:640px){
@@ -208,15 +211,15 @@ iframe{border-radius:8px;background:#fff;max-width:100%;}
 /* 선택 결과 칩 */
 .pickbox{color:var(--miro-fg);margin:2px 0 10px;}
 .pickbox .lbl{font-size:11.5px;font-weight:700;letter-spacing:.5px;margin-bottom:7px;}
-.pickbox .on{color:#0F7A40;}
+.pickbox .on{color:var(--success-ink);}
 .pickbox .off{color:var(--miro-fg3);}
 .pickbox .row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;}
 .pickbox .chip{
   display:inline-flex;align-items:center;gap:5px;border-radius:999px;
   padding:5px 12px;font-size:12.5px;font-weight:600;
 }
-.pickbox .chip.yes{background:#DCF7E5;color:#0F7A40;border:1px solid #A8E5C2;}
-.pickbox .chip.no{background:#F1F1EC;color:var(--miro-fg3);border:1px solid #E0E0DA;}
+.pickbox .chip.yes{background:var(--success-bg);color:var(--success-ink);border:1px solid var(--success-line);}
+.pickbox .chip.no{background:var(--miro-line-soft);color:var(--miro-fg3);border:1px solid var(--miro-line);}
 .pickbox .none{color:var(--miro-fg3);font-size:12.5px;}
 
 @media (max-width:820px){
@@ -240,7 +243,7 @@ if _bg_b64:
     <style>
     .stApp{{
       background-image:
-        linear-gradient(rgba(245,245,240,.90), rgba(245,245,240,.90)),
+        linear-gradient(rgba(246,249,252,.92), rgba(246,249,252,.92)),
         url('data:image/jpeg;base64,{_bg_b64}');
       background-size: cover;
       background-position: center top;
