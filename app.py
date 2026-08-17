@@ -13,7 +13,7 @@ from youtube_transcript_api import YouTubeTranscriptApi
 import google.generativeai as genai
 
 # Streamlit 페이지 설정
-st.set_page_config(page_title="강의 콘텐츠 자동 생성기",
+st.set_page_config(page_title="MR.K 유튜브/대본으로 15가지 뽑아내기",
                    page_icon="🎥", layout="wide")
 
 # ============================================================
@@ -249,7 +249,7 @@ if _bg_b64:
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🎥 유튜브 강의 콘텐츠 자동 생성기")
+st.title("🎥 MR.K 유튜브/대본으로 15가지 뽑아내기")
 
 LOCAL_ARCHIVE = Path("archive")
 LOCAL_ARCHIVE.mkdir(exist_ok=True)
